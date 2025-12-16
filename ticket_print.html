@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @page {
+        margin: 0;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      /* 80mm: el “ancho útil” real suele ser 72–76mm */
+      #ticket {
+        width: 72mm;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Courier New", monospace;
+        font-size: 12px;
+        line-height: 1.2;
+        color: #000;
+      }
+      .center {
+        text-align: center;
+      }
+      .right {
+        text-align: right;
+      }
+      .bold {
+        font-weight: 700;
+      }
+      .sep {
+        border-top: 1px dashed #000;
+        margin: 8px 0;
+      }
+
+      /* Columnas tipo ticket */
+      .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .col-left {
+        flex: 1;
+        min-width: 0;
+      }
+      .col-right {
+        width: 18mm;
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .muted {
+        opacity: 0.9;
+      }
+      .small {
+        font-size: 11px;
+      }
+
+      /* Línea de producto: Cant + Descripción + Total */
+      .item {
+        margin: 2px 0;
+      }
+      .item-top {
+        display: flex;
+        gap: 6px;
+      }
+      .qty {
+        width: 6mm;
+        text-align: right;
+      }
+      .desc {
+        flex: 1;
+        min-width: 0;
+        word-break: break-word;
+      }
+      .ltotal {
+        width: 18mm;
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      /* Encabezado tabla */
+      .thead {
+        display: flex;
+        gap: 6px;
+      }
+      .thead .qty {
+        width: 6mm;
+        text-align: right;
+      }
+      .thead .desc {
+        flex: 1;
+      }
+      .thead .ltotal {
+        width: 18mm;
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="ticket">
+      <div class="center" style="padding: 6px 0">
+        <img
+          id="companyLogo"
+          src=""
+          alt="Logo"
+          style="max-width: 60mm; max-height: 18mm; display: none"
+        />
+      </div>
+
+      <!-- Empresa -->
+      <div class="center bold" style="font-size: 16px" id="companyShortName">
+        ---
+      </div>
+      <div class="center small muted" id="companyLegalName"></div>
+
+      <div class="small" id="companyAddress"></div>
+      <div class="small">
+        CP: <span id="companyZip"></span><span id="companyCity"></span>
+      </div>
+      <div class="small">CIF: <span id="companyCif">---</span></div>
+
+      <div class="sep"></div>
+
+      <!-- Factura -->
+      <div class="small"><span id="companyPhone"></span></div>
+      <div class="small">
+        Factura Simplificada <span id="invoiceNumber">---</span>
+      </div>
+      <div class="small">
+        Fecha: <span id="ticketDate">--/--/---- --:--</span>
+      </div>
+      <div class="small">Cliente: <span id="clientName">---</span></div>
+
+      <div class="sep"></div>
+
+      <!-- Cabecera líneas -->
+      <div class="thead small muted">
+        <div class="qty">Cant.</div>
+        <div class="desc">Ref.</div>
+        <div class="ltotal">Total</div>
+      </div>
+      <div class="sep"></div>
+
+      <!-- Líneas -->
+      <div id="items"></div>
+
+      <div class="sep"></div>
+
+      <!-- Desglose IVA -->
+      <div id="taxSummary"></div>
+
+      <div class="sep"></div>
+
+      <!-- Totales -->
+      <div class="row">
+        <div class="bold">Total</div>
+        <div class="bold right" id="grandTotal">0,00</div>
+      </div>
+      <div class="row small muted">
+        <div>
+          <span id="paymentMethodLabel">Forma de pago</span>:
+          <span id="paymentMethod">—</span>
+        </div>
+        <div class="right" id="paidAmount">0,00</div>
+      </div>
+
+      <div class="row small muted" id="cashRow" style="display: none">
+        <div>Entregado</div>
+        <div class="right" id="cashGiven">0,00</div>
+      </div>
+      <div class="row small muted" id="changeRow" style="display: none">
+        <div>Cambio</div>
+        <div class="right" id="changeCash">0,00</div>
+      </div>
+
+      <div class="sep"></div>
+
+      <!-- TPV/Agente -->
+      <div class="small">TPV: <span id="terminalName">---</span></div>
+      <div class="small">Agente: <span id="agentName">---</span></div>
+
+      <div class="sep"></div>
+
+      <div class="center small">Gracias por su compra</div>
+    </div>
+  </body>
+</html>

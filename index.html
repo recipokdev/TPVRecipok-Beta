@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>TPV Local Recipok</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="products-area">
+      <!-- Barra de agentes (principal) -->
+      <div id="mainAgentBar" class="agent-main-bar"></div>
+
+      <!-- Barra de búsqueda -->
+      <div class="search-bar">
+        <input
+          id="searchInput"
+          type="text"
+          placeholder="Buscar producto..."
+          autocomplete="off"
+        />
+        <button id="searchClearBtn" class="search-btn">✕</button>
+        <button id="searchKeyboardBtn" class="search-btn">⌨</button>
+      </div>
+
+      <!-- Categorías con flechas -->
+      <div class="categories-wrapper">
+        <div id="categories" class="categories"></div>
+      </div>
+
+      <!-- Productos -->
+      <div class="products-grid" id="productsGrid"></div>
+      <div id="statusBar" class="status-bar"><strong>—</strong></div>
+    </div>
+
+    <!-- PANEL DERECHO: CARRITO -->
+    <aside class="cart-card">
+      <header class="cart-card-header">
+        <div class="cart-title">🛒 <span>Carrito</span></div>
+        <div class="cart-header-right">
+          <button type="button" class="cart-header-box" id="cashHeaderBtn">
+            💶 <span id="cashHeaderLabel">Abrir caja</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Info terminal / agente -->
+      <div class="cart-terminal-row">
+        <span>
+          Terminal: <strong id="terminalName">---</strong>
+          &nbsp;|&nbsp; Agente:
+          <span id="agentName" class="agent-name">---</span>
+        </span>
+      </div>
+
+      <!-- Cliente actual (por ahora solo texto fijo, luego lo conectamos) -->
+      <div class="cart-client-row">
+        <div class="cart-client-icon">👤</div>
+        <input
+          type="text"
+          class="cart-client-input"
+          value="1 | Ventas tickets"
+          readonly
+        />
+        <button type="button" class="cart-client-btn" title="Cambiar cliente">
+          ➕
+        </button>
+      </div>
+
+      <!-- LÍNEAS DEL CARRITO -->
+      <div class="cart-lines-wrapper">
+        <div id="cartLines"></div>
+      </div>
+
+      <!-- TOTAL -->
+      <div class="cart-total-row">
+        <span>Total</span>
+        <span id="totalAmount">0,00 €</span>
+      </div>
+
+      <!-- BOTONES PRINCIPALES -->
+      <div class="cart-main-buttons">
+        <button id="payBtn" class="cart-btn cart-btn-pay">Cobrar</button>
+        <button id="printTicketBtn" class="cart-btn cart-btn-print" disabled>
+          🖨️
+        </button>
+        <button id="changePrinterBtn" class="cart-btn">Impresora</button>
+        <button id="clearCartBtn" class="cart-btn cart-btn-delete">
+          Eliminar
+        </button>
+      </div>
+
+      <!-- APARCAR Y TICKETS -->
+      <div class="cart-secondary-buttons">
+        <button id="parkBtn" class="cart-btn cart-btn-park">Aparcar</button>
+        <button id="parkedListBtn" class="cart-btn cart-btn-parked">
+          Aparcados <span id="parkedCountBadge" class="cart-badge">0</span>
+        </button>
+        <button id="ticketsListBtn" class="cart-btn cart-btn-tickets" disabled>
+          Tickets
+        </button>
+      </div>
+    </aside>
+
+    <!-- Teclado numérico -->
+    <div id="numPadOverlay" class="num-pad-overlay hidden">
+      <div class="num-pad">
+        <div class="num-pad-title">
+          Cantidad <span id="numPadProductName"></span>
+        </div>
+        <div id="numPadDisplay" class="num-pad-display">0</div>
+        <div class="num-pad-grid">
+          <button class="num-pad-btn" data-key="7">7</button>
+          <button class="num-pad-btn" data-key="8">8</button>
+          <button class="num-pad-btn" data-key="9">9</button>
+
+          <button class="num-pad-btn" data-key="4">4</button>
+          <button class="num-pad-btn" data-key="5">5</button>
+          <button class="num-pad-btn" data-key="6">6</button>
+
+          <button class="num-pad-btn" data-key="1">1</button>
+          <button class="num-pad-btn" data-key="2">2</button>
+          <button class="num-pad-btn" data-key="3">3</button>
+
+          <button class="num-pad-btn" data-key="0">0</button>
+          <button class="num-pad-btn" data-key="back">←</button>
+          <div></div>
+        </div>
+        <div class="num-pad-actions">
+          <button class="num-pad-clear" data-key="clear">Borrar</button>
+          <button class="num-pad-cancel" data-key="cancel">Cancelar</button>
+          <button class="num-pad-ok" data-key="ok">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Teclado QWERTY -->
+    <div id="qwertyOverlay" class="qwerty-overlay hidden">
+      <div class="qwerty-pad">
+        <div id="qwertyDisplay" class="qwerty-display"></div>
+
+        <div class="qwerty-rows">
+          <div
+            class="qwerty-row qwerty-email-row hidden q-row"
+            id="qwertyEmailRow"
+          >
+            <button class="q-key" data-key=".">.</button>
+            <button class="q-key" data-key="_">_</button>
+            <button class="q-key" data-key="-">-</button>
+            <button class="q-key" data-key="@">@</button>
+            <button class="q-key" data-key=".com">.com</button>
+            <button class="q-key" data-key="gmail.com">gmail.com</button>
+          </div>
+          <div class="q-row">
+            <button class="q-key" data-key="q">Q</button>
+            <button class="q-key" data-key="w">W</button>
+            <button class="q-key" data-key="e">E</button>
+            <button class="q-key" data-key="r">R</button>
+            <button class="q-key" data-key="t">T</button>
+            <button class="q-key" data-key="y">Y</button>
+            <button class="q-key" data-key="u">U</button>
+            <button class="q-key" data-key="i">I</button>
+            <button class="q-key" data-key="o">O</button>
+            <button class="q-key" data-key="p">P</button>
+          </div>
+          <div class="q-row">
+            <button class="q-key" data-key="a">A</button>
+            <button class="q-key" data-key="s">S</button>
+            <button class="q-key" data-key="d">D</button>
+            <button class="q-key" data-key="f">F</button>
+            <button class="q-key" data-key="g">G</button>
+            <button class="q-key" data-key="h">H</button>
+            <button class="q-key" data-key="j">J</button>
+            <button class="q-key" data-key="k">K</button>
+            <button class="q-key" data-key="l">L</button>
+            <button class="q-key" data-key="ñ">Ñ</button>
+          </div>
+          <div class="q-row">
+            <button class="q-key" data-key="z">Z</button>
+            <button class="q-key" data-key="x">X</button>
+            <button class="q-key" data-key="c">C</button>
+            <button class="q-key" data-key="v">V</button>
+            <button class="q-key" data-key="b">B</button>
+            <button class="q-key" data-key="n">N</button>
+            <button class="q-key" data-key="m">M</button>
+            <button class="q-key" data-key="-">-</button>
+          </div>
+        </div>
+
+        <div class="qwerty-actions">
+          <button class="q-btn" data-key="space">Espacio</button>
+          <button class="q-btn q-clear" data-key="clear">Borrar todo</button>
+          <button class="q-btn q-back" data-key="back">←</button>
+          <button class="q-btn q-cancel" data-key="cancel">Cancelar</button>
+          <button class="q-btn q-ok" data-key="ok">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overlay selección de terminal / agente -->
+    <div id="terminalOverlay" class="simple-overlay hidden">
+      <div class="simple-dialog">
+        <h2>Seleccionar terminal</h2>
+        <p style="margin-bottom: 8px; font-size: 14px">
+          Elige el TPV y el agente que va a usar este equipo.
+        </p>
+
+        <!-- Wrapper terminal -->
+        <div id="terminalSelectWrapper" style="margin-bottom: 8px">
+          <label
+            for="terminalSelect"
+            style="font-size: 13px; display: block; margin-bottom: 4px"
+          >
+            Terminal TPV
+          </label>
+          <select
+            id="terminalSelect"
+            style="
+              width: 100%;
+              padding: 6px;
+              border-radius: 4px;
+              border: 1px solid #ccc;
+            "
+          >
+            <!-- Se rellena desde JS -->
+          </select>
+        </div>
+
+        <!-- Wrapper agente -->
+        <div id="agentSelectWrapper" style="margin-bottom: 8px">
+          <label
+            for="agentButtonsOverlay"
+            style="font-size: 13px; display: block; margin-bottom: 4px"
+          >
+            Agente / cajero
+          </label>
+          <div
+            id="agentButtonsOverlay"
+            class="agent-button-bar"
+            style="display: flex; flex-wrap: wrap; gap: 8px"
+          >
+            <!-- Botones de agente generados por JS -->
+          </div>
+        </div>
+
+        <div id="terminalError" class="dialog-error"></div>
+
+        <div class="dialog-actions">
+          <button id="terminalExitBtn">Salir</button>
+          <button id="terminalOkBtn">Continuar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overlay: Tickets aparcados -->
+    <div id="parkedTicketsOverlay" class="simple-overlay hidden">
+      <div class="parked-modal">
+        <header class="parked-modal-header">
+          <h2>Tickets aparcados</h2>
+          <button type="button" id="parkedCloseBtn" class="parked-close-btn">
+            ✕
+          </button>
+        </header>
+
+        <div class="parked-modal-body">
+          <div id="parkedTicketsList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overlay apertura de caja -->
+    <div id="cashOpenOverlay" class="simple-overlay hidden">
+      <div class="cash-dialog">
+        <h2>Apertura de caja</h2>
+        <p class="cash-subtitle">
+          Terminal: <span id="cashOpenTerminalName"></span>
+        </p>
+
+        <div class="cash-grid">
+          <!-- Cada celda: etiqueta + input cantidad de billetes/monedas -->
+          <!-- fila 1 -->
+          <div class="cash-cell">
+            <label>0,01 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="0.01" />
+          </div>
+          <div class="cash-cell">
+            <label>0,02 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="0.02" />
+          </div>
+          <div class="cash-cell">
+            <label>0,05 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="0.05" />
+          </div>
+          <div class="cash-cell">
+            <label>0,10 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="0.10" />
+          </div>
+
+          <!-- fila 2 -->
+          <div class="cash-cell">
+            <label>0,20 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="0.20" />
+          </div>
+          <div class="cash-cell">
+            <label>0,50 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="0.50" />
+          </div>
+          <div class="cash-cell">
+            <label>1 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="1" />
+          </div>
+          <div class="cash-cell">
+            <label>2 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="2" />
+          </div>
+
+          <!-- fila 3 -->
+          <div class="cash-cell">
+            <label>5 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="5" />
+          </div>
+          <div class="cash-cell">
+            <label>10 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="10" />
+          </div>
+          <div class="cash-cell">
+            <label>20 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="20" />
+          </div>
+          <div class="cash-cell">
+            <label>50 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="50" />
+          </div>
+
+          <!-- fila 4 -->
+          <div class="cash-cell">
+            <label>100 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="100" />
+          </div>
+          <div class="cash-cell">
+            <label>200 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="200" />
+          </div>
+          <div class="cash-cell">
+            <label>500 €</label>
+            <input type="number" min="0" step="1" value="0" data-denom="500" />
+          </div>
+        </div>
+
+        <!-- Resumen principal (arriba del todo) -->
+        <div class="cash-summary">
+          <span id="cashSummaryMainLabel">Dinero inicial:</span>
+          <strong id="cashOpenTotal">0,00 €</strong>
+        </div>
+
+        <!-- Resumen extendido para cierre -->
+        <div
+          id="cashCloseSummary"
+          style="
+            display: none;
+            margin-top: 10px;
+            font-size: 13px;
+            border-top: 1px solid #ddd;
+            padding-top: 8px;
+          "
+        >
+          <div
+            style="
+              display: flex;
+              flex-wrap: wrap;
+              gap: 16px;
+              justify-content: space-between;
+            "
+          >
+            <div>Dinero inicial: <strong id="sumOpening">0,00 €</strong></div>
+            <div>
+              Ingresos en efectivo: <strong id="sumCashIncome">0,00 €</strong>
+            </div>
+            <div>
+              Total movimientos: <strong id="sumMovements">0,00 €</strong>
+            </div>
+            <div>
+              Total en caja: <strong id="sumExpectedCash">0,00 €</strong>
+            </div>
+            <div>
+              Conteo de caja: <strong id="sumCountedCash">0,00 €</strong>
+            </div>
+            <div>Total ventas: <strong id="sumTotalSales">0,00 €</strong></div>
+          </div>
+        </div>
+
+        <div class="dialog-actions">
+          <button id="cashOpenCancelBtn">Cancelar</button>
+          <button id="cashOpenOkBtn">Abrir caja</button>
+        </div>
+      </div>
+    </div>
+    <div id="emailOverlay" class="email-overlay hidden">
+      <div class="email-modal">
+        <h2>Activar TPV</h2>
+        <p>Introduce el email de tu empresa</p>
+
+        <input id="emailInput" type="email" placeholder="tu@email.com" />
+        <div
+          style="
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 8px;
+          "
+        >
+          <button id="emailKeyboardBtn" type="button">⌨ Teclado</button>
+        </div>
+        <div class="email-actions">
+          <button id="emailCancelBtn" type="button">Cancelar</button>
+          <button id="emailOkBtn" type="button">Continuar</button>
+        </div>
+
+        <div id="emailError" class="email-error"></div>
+      </div>
+    </div>
+    <div id="msgOverlay" class="simple-overlay hidden">
+      <div class="simple-dialog">
+        <h2 id="msgTitle">Aviso</h2>
+        <p id="msgText" style="margin: 10px 0; font-size: 14px"></p>
+        <div class="dialog-actions">
+          <button id="msgOkBtn">Aceptar</button>
+        </div>
+      </div>
+    </div>
+    <div id="printerOverlay" class="simple-overlay hidden">
+      <div class="simple-dialog">
+        <h2>Seleccionar impresora</h2>
+        <p style="margin-bottom: 8px; font-size: 14px">
+          Elige la impresora de tickets (se guardará para próximas impresiones).
+        </p>
+
+        <select
+          id="printerSelect"
+          style="
+            width: 100%;
+            padding: 6px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+          "
+        >
+          <!-- opciones por JS -->
+        </select>
+
+        <div id="printerError" class="dialog-error"></div>
+
+        <div class="dialog-actions">
+          <button id="printerCancelBtn">Cancelar</button>
+          <button id="printerOkBtn">Guardar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overlay Cobrar (estilo FacturaScripts) -->
+    <div id="payOverlay" class="simple-overlay hidden">
+      <div class="pay-modal">
+        <header class="pay-header">
+          <h2 style="margin: 0">Cobrar</h2>
+          <button type="button" id="payCloseX" class="pay-x">✕</button>
+        </header>
+
+        <div class="pay-top">
+          <div class="pay-top-box">
+            <div class="pay-top-value" id="payTotalBig">0,00 €</div>
+            <div class="pay-top-label">Total</div>
+          </div>
+          <div class="pay-top-box">
+            <div class="pay-top-value" id="payChangeBig">0,00 €</div>
+            <div class="pay-top-label">Cambio</div>
+          </div>
+        </div>
+
+        <div class="pay-body">
+          <!-- IZQUIERDA: métodos + campos -->
+          <div class="pay-left">
+            <div class="pay-section-title">Formas de pago</div>
+
+            <div id="payMethodsList" class="pay-methods-list">
+              <!-- filas dinámicas por JS -->
+            </div>
+
+            <div class="pay-extra">
+              <div class="pay-extra-row">
+                <div class="pay-extra-col">
+                  <label class="pay-label">Número</label>
+                  <input id="payNumber" class="pay-input" placeholder="" />
+                </div>
+
+                <div class="pay-extra-col">
+                  <label class="pay-label">Serie</label>
+                  <select id="paySerie" class="pay-input">
+                    <option value="">Simplificadas</option>
+                  </select>
+                </div>
+              </div>
+
+              <label class="pay-label" style="margin-top: 10px"
+                >Observaciones</label
+              >
+              <textarea id="payObs" class="pay-textarea" rows="3"></textarea>
+            </div>
+
+            <div
+              id="payError"
+              class="dialog-error"
+              style="margin-top: 8px"
+            ></div>
+
+            <div class="pay-footer-left">
+              <button
+                id="payOpenDrawerBtn"
+                class="pay-btn pay-btn-blue"
+                type="button"
+              >
+                🧾 Abrir cajón
+              </button>
+            </div>
+          </div>
+
+          <!-- DERECHA: teclado numérico -->
+          <div class="pay-right">
+            <div class="pay-keypad">
+              <button class="pay-key" data-k="7">7</button>
+              <button class="pay-key" data-k="8">8</button>
+              <button class="pay-key" data-k="9">9</button>
+
+              <button class="pay-key" data-k="4">4</button>
+              <button class="pay-key" data-k="5">5</button>
+              <button class="pay-key" data-k="6">6</button>
+
+              <button class="pay-key" data-k="1">1</button>
+              <button class="pay-key" data-k="2">2</button>
+              <button class="pay-key" data-k="3">3</button>
+
+              <button class="pay-key" data-k="0">0</button>
+              <button class="pay-key" data-k="00">00</button>
+              <button class="pay-key" data-k=".">.</button>
+
+              <!-- columna acciones (como la imagen) -->
+              <button class="pay-key pay-key-yellow" data-k="back">⌫</button>
+              <button class="pay-key pay-key-red" data-k="clear">C</button>
+            </div>
+
+            <div class="pay-footer-right">
+              <button id="payCancelBtn" class="pay-btn" type="button">
+                Cancelar
+              </button>
+              <button
+                id="paySaveBtn"
+                class="pay-btn pay-btn-green"
+                type="button"
+              >
+                💾 Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="config.js"></script>
+    <div id="toastContainer" class="toast-container"></div>
+    <script src="renderer.js"></script>
+  </body>
+</html>
