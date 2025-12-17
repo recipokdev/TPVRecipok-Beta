@@ -251,7 +251,7 @@ async function runAutoUpdateGate() {
     const watchdog = setTimeout(() => {
       splashSet("Conexión lenta. Abriendo…", 40);
       setTimeout(() => {
-        closeSplash();
+        autoUpdater.removeListener("download-progress", onProgress);
         done({ updatedOrReady: true });
       }, 200);
     }, 15000);
@@ -261,7 +261,6 @@ async function runAutoUpdateGate() {
       splashSet(msg, percent);
       setTimeout(() => {
         autoUpdater.removeListener("download-progress", onProgress);
-        closeSplash();
         done({ updatedOrReady: true });
       }, delay);
     };
@@ -271,7 +270,7 @@ async function runAutoUpdateGate() {
       clearTimeout(watchdog);
       splashSet("No se pudo comprobar. Abriendo…", 40);
       setTimeout(() => {
-        closeSplash();
+        autoUpdater.removeListener("download-progress", onProgress);
         done({ updatedOrReady: true });
       }, 300);
     });
@@ -364,7 +363,9 @@ ipcMain.handle("ticket:print", async (event, { html, deviceName }) => {
 
 app.whenReady().then(async () => {
   await runAutoUpdateGate();
-  createWindow();
+
+  createWindow(); // ✅ creas la ventana principal
+  closeSplash(); // ✅ ahora ya puedes matar el splash sin que la app se cierre
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
