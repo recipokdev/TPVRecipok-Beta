@@ -1,5 +1,6 @@
 // main.js
 const { app, BrowserWindow, ipcMain } = require("electron");
+const { autoUpdater } = require("electron-updater");
 const path = require("path");
 
 let mainWin = null;
@@ -20,7 +21,7 @@ function createWindow() {
   });
   mainWin.removeMenu();
   mainWin.loadFile(path.join(__dirname, "index.html"));
-  mainWin.webContents.openDevTools();
+  /*mainWin.webContents.openDevTools();*/
 }
 
 async function createHiddenPrintWindow(html) {
@@ -95,8 +96,33 @@ ipcMain.handle("ticket:print", async (event, { html, deviceName }) => {
   }
 });
 
+function initAutoUpdates() {
+  // Solo en app instalada / empaquetada
+  if (!app.isPackaged) return;
+
+  autoUpdater.autoDownload = true;
+
+  autoUpdater.on("error", (err) => {
+    console.log("AutoUpdate error:", err);
+  });
+
+  autoUpdater.on("update-available", () => {
+    console.log("Update available: downloading...");
+  });
+
+  autoUpdater.on("update-downloaded", () => {
+    console.log("Update downloaded: installing...");
+    // Instala y reinicia
+    autoUpdater.quitAndInstall();
+  });
+
+  // Chequea al iniciar
+  autoUpdater.checkForUpdatesAndNotify();
+}
+
 app.whenReady().then(() => {
   createWindow();
+  initAutoUpdates();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

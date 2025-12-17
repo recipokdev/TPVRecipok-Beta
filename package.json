@@ -1,6 +1,6 @@
 {
   "name": "tpvrecipok",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "",
   "main": "main.js",
   "scripts": {
@@ -46,15 +46,15 @@
       "createStartMenuShortcut": true,
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "recipokdev",
+        "repo": "TPVRecipok"
+      }
+    ]
   },
-  "publish": [
-    {
-      "provider": "github",
-      "owner": "recipokdev",
-      "repo": "TPVRecipok"
-    }
-  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/recipokdev/TPVRecipok.git"

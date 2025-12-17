@@ -2162,7 +2162,7 @@ function buildTicketPayloadFromCart() {
   const payload = {
     codcliente,
     lineas,
-    pagada: 1,
+    pagada: 0,
   };
 
   // ⚠ De momento NO mandamos fecha, hora, serie, forma de pago ni agente.
@@ -2682,7 +2682,6 @@ async function onPayButtonClick() {
 
     // Para FS:
     if (isMixto) {
-      ticketPayload.pagada = 1;
       ticketPayload.codpago = primary ? primary.codpago : null;
       ticketPayload.pagos = pagos; // si el endpoint lo admite, perfecto
     }
@@ -2698,6 +2697,33 @@ async function onPayButtonClick() {
     const coddivisa = facturaResp?.coddivisa;
     const fecha = facturaResp?.fecha;
     const codigofactura = facturaResp?.codigo;
+
+    // ✅ Crear 1 recibo por cada método de pago usado (pago mixto)
+    if (idfactura && codcliente) {
+      const today = new Date().toISOString().slice(0, 10);
+      const pagos = payResult.pagos || [];
+
+      for (const p of pagos) {
+        const importe = Number(Number(p.importe || 0).toFixed(2));
+        if (!(importe > 0)) continue;
+
+        await createReciboCliente({
+          idfactura,
+          codcliente,
+          codpago: p.codpago,
+          importe,
+          fechaPago: today,
+          idempresa,
+          codigofactura,
+          coddivisa,
+          fecha: today,
+        });
+      }
+    } else {
+      console.warn(
+        "No hay idfactura/codcliente: no se pudieron crear recibos."
+      );
+    }
 
     if (idfactura) {
       try {
