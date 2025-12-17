@@ -12,7 +12,7 @@ function createWindow() {
   mainWin = new BrowserWindow({
     width: 1366,
     height: 768,
-    show: false, // 👈 importante
+    show: false,
     icon: path.join(__dirname, "assets", "icon.png"),
     webPreferences: {
       contextIsolation: true,
@@ -23,11 +23,51 @@ function createWindow() {
   });
 
   mainWin.removeMenu();
-  mainWin.loadFile(path.join(__dirname, "index.html"));
 
+  // Logs útiles si algo falla en producción
+  mainWin.webContents.on(
+    "did-fail-load",
+    (event, errorCode, errorDescription, validatedURL) => {
+      console.log("did-fail-load:", {
+        errorCode,
+        errorDescription,
+        validatedURL,
+      });
+      // Si falla cargar, igualmente mostramos la ventana para ver algo
+      if (!mainWin.isVisible()) mainWin.show();
+    }
+  );
+
+  mainWin.webContents.on("render-process-gone", (event, details) => {
+    console.log("render-process-gone:", details);
+  });
+
+  mainWin.webContents.on(
+    "console-message",
+    (event, level, message, line, sourceId) => {
+      console.log(
+        `renderer console [${level}] ${message} (${sourceId}:${line})`
+      );
+    }
+  );
+
+  mainWin.loadFile(path.join(__dirname, "index.html")).catch((e) => {
+    console.log("loadFile error:", e);
+  });
+
+  // Mostrar cuando esté lista, pero con “plan B”
+  let shown = false;
   mainWin.once("ready-to-show", () => {
+    shown = true;
     mainWin.show();
   });
+
+  // Plan B: si en 2s no hubo ready-to-show, mostramos igual
+  setTimeout(() => {
+    if (!shown && mainWin && !mainWin.isDestroyed() && !mainWin.isVisible()) {
+      mainWin.show();
+    }
+  }, 2000);
 }
 
 function createSplashWindow() {
@@ -220,6 +260,7 @@ async function runAutoUpdateGate() {
       clearTimeout(watchdog);
       splashSet(msg, percent);
       setTimeout(() => {
+        autoUpdater.removeListener("download-progress", onProgress);
         closeSplash();
         done({ updatedOrReady: true });
       }, delay);
