@@ -12,6 +12,7 @@ function createWindow() {
   mainWin = new BrowserWindow({
     width: 1366,
     height: 768,
+    show: false, // 👈 importante
     icon: path.join(__dirname, "assets", "icon.png"),
     webPreferences: {
       contextIsolation: true,
@@ -23,6 +24,10 @@ function createWindow() {
 
   mainWin.removeMenu();
   mainWin.loadFile(path.join(__dirname, "index.html"));
+
+  mainWin.once("ready-to-show", () => {
+    mainWin.show();
+  });
 }
 
 function createSplashWindow() {
@@ -33,7 +38,8 @@ function createSplashWindow() {
     movable: true,
     minimizable: false,
     maximizable: false,
-    closable: false, // evita que el usuario lo cierre durante update
+    closable: true, // ✅ que el código pueda cerrarlo
+    skipTaskbar: true, // ✅ no aparece en la barra
     show: false,
     alwaysOnTop: true,
     center: true,
@@ -46,6 +52,16 @@ function createSplashWindow() {
   });
 
   splashWin.removeMenu();
+  let allowSplashClose = false;
+
+  splashWin.on("close", (e) => {
+    if (!allowSplashClose) e.preventDefault();
+  });
+
+  // guarda el flag a nivel global
+  splashWin.__allowClose = () => {
+    allowSplashClose = true;
+  };
 
   // HTML inline sencillo con barra de progreso
   const html = `
@@ -162,7 +178,10 @@ function splashSet(text, percent) {
 function closeSplash() {
   if (splashWin && !splashWin.isDestroyed()) {
     try {
-      splashWin.close();
+      // permite cerrar desde código
+      if (typeof splashWin.__allowClose === "function")
+        splashWin.__allowClose();
+      splashWin.destroy(); // 👈 cierre forzado (no se queda pegado)
     } catch (_) {}
   }
   splashWin = null;
@@ -174,7 +193,7 @@ async function runAutoUpdateGate() {
 
   // Creamos splash
   createSplashWindow();
-  splashSet("Buscando actualizaciones...", 0);
+  splashSet("Buscando actualizaciones...", 20);
 
   // Configuración
   autoUpdater.autoDownload = true;
@@ -188,39 +207,54 @@ async function runAutoUpdateGate() {
       resolve(result);
     };
 
+    // Watchdog: si GitHub tarda o se cuelga, abrimos igual
+    const watchdog = setTimeout(() => {
+      splashSet("Conexión lenta. Abriendo…", 40);
+      setTimeout(() => {
+        closeSplash();
+        done({ updatedOrReady: true });
+      }, 200);
+    }, 15000);
+
+    const finishOk = (msg, percent = 60, delay = 200) => {
+      clearTimeout(watchdog);
+      splashSet(msg, percent);
+      setTimeout(() => {
+        closeSplash();
+        done({ updatedOrReady: true });
+      }, delay);
+    };
+
     autoUpdater.once("error", (err) => {
       console.log("AutoUpdate error:", err);
-      splashSet("No se pudo comprobar actualizaciones. Abriendo la app…", 0);
-      setTimeout(() => done({ updatedOrReady: true }), 900);
+      clearTimeout(watchdog);
+      splashSet("No se pudo comprobar. Abriendo…", 40);
+      setTimeout(() => {
+        closeSplash();
+        done({ updatedOrReady: true });
+      }, 300);
     });
 
     autoUpdater.once("update-not-available", () => {
-      splashSet("No hay actualizaciones. Abriendo…", 100);
-      setTimeout(() => done({ updatedOrReady: true }), 600);
+      finishOk("Todo al día. Abriendo…", 60, 200);
     });
 
     autoUpdater.once("update-available", () => {
-      splashSet("Actualización encontrada. Descargando…", 0);
+      clearTimeout(watchdog);
+      splashSet("Actualización encontrada. Descargando…", 25);
     });
 
-    autoUpdater.on("download-progress", (p) => {
-      // p.percent suele venir bien
+    const onProgress = (p) => {
       const pct = typeof p.percent === "number" ? p.percent : 0;
       splashSet("Descargando actualización…", pct);
-    });
+    };
+    autoUpdater.on("download-progress", onProgress);
 
     autoUpdater.once("update-downloaded", () => {
       splashSet("Instalando actualización…", 100);
-
-      // Instalación y relanzado automático
-      setTimeout(() => {
-        // quitAndInstall(isSilent, isForceRunAfter)
-        autoUpdater.quitAndInstall(true, true);
-        // no llamamos done porque la app se cerrará
-      }, 600);
+      setTimeout(() => autoUpdater.quitAndInstall(true, true), 600);
     });
 
-    // IMPORTANTE: no usar checkForUpdatesAndNotify (muestra UI)
     autoUpdater.checkForUpdates();
   });
 }
@@ -288,11 +322,7 @@ ipcMain.handle("ticket:print", async (event, { html, deviceName }) => {
 });
 
 app.whenReady().then(async () => {
-  // 1) Gate de actualización (con splash y barra)
   await runAutoUpdateGate();
-
-  // 2) Abrir app normal
-  closeSplash();
   createWindow();
 
   app.on("activate", () => {
