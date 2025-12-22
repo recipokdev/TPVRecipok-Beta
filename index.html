@@ -40,6 +40,15 @@
           <button type="button" class="cart-header-box" id="cashHeaderBtn">
             💶 <span id="cashHeaderLabel">Abrir caja</span>
           </button>
+
+          <button
+            type="button"
+            class="cart-header-box"
+            id="optionsBtn"
+            title="Opciones"
+          >
+            ⚙️
+          </button>
         </div>
       </header>
 
@@ -49,6 +58,14 @@
           Terminal: <strong id="terminalName">---</strong>
           &nbsp;|&nbsp; Agente:
           <span id="agentName" class="agent-name">---</span>
+          &nbsp;|&nbsp; Usuario:
+          <span
+            id="userName"
+            class="agent-name user-name"
+            title="Cerrar sesión"
+          >
+            ---
+          </span>
         </span>
       </div>
 
@@ -77,29 +94,27 @@
         <span id="totalAmount">0,00 €</span>
       </div>
 
-      <!-- BOTONES PRINCIPALES -->
-      <div class="cart-main-buttons">
-        <button id="payBtn" class="cart-btn cart-btn-pay">Cobrar</button>
-        <button id="printTicketBtn" class="cart-btn cart-btn-print" disabled>
-          🖨️
-        </button>
-        <button id="changePrinterBtn" class="cart-btn">Impresora</button>
-        <button id="clearCartBtn" class="cart-btn cart-btn-delete">
-          Eliminar
-        </button>
-      </div>
+      <!-- BOTONERA INFERIOR (nuevo layout) -->
+<div class="cart-action-grid">
+  <!-- Izquierda -->
+  <button id="clearCartBtn" class="cart-btn cart-btn-delete">Vaciar</button>
+  <button id="ticketsListBtn" class="cart-btn cart-btn-tickets">Tickets</button>
 
-      <!-- APARCAR Y TICKETS -->
-      <div class="cart-secondary-buttons">
-        <button id="parkBtn" class="cart-btn cart-btn-park">Aparcar</button>
-        <button id="parkedListBtn" class="cart-btn cart-btn-parked">
-          Aparcados <span id="parkedCountBadge" class="cart-badge">0</span>
-        </button>
-        <button id="ticketsListBtn" class="cart-btn cart-btn-tickets" disabled>
-          Tickets
-        </button>
-      </div>
-    </aside>
+  <!-- Centro (el “hueco” donde antes estaba imprimir) -->
+  <button id="parkBtn" class="cart-btn cart-btn-park">Aparcar</button>
+  <button id="parkedListBtn" class="cart-btn cart-btn-parked">
+    Aparcados <span id="parkedCountBadge" class="cart-badge">0</span>
+  </button>
+
+  <!-- Derecha: Cobrar ocupa 2 filas -->
+  <button id="payBtn" class="cart-btn cart-btn-pay cart-btn-pay-tall">
+    Cobrar
+  </button>
+</div>
+
+<!-- Puedes dejar esto tal cual si lo usas en Opciones -->
+<button id="changePrinterBtn" class="cart-btn hidden">Impresora</button>
+
 
     <!-- Teclado numérico -->
     <div id="numPadOverlay" class="num-pad-overlay hidden">
@@ -149,6 +164,18 @@
             <button class="q-key" data-key="@">@</button>
             <button class="q-key" data-key=".com">.com</button>
             <button class="q-key" data-key="gmail.com">gmail.com</button>
+          </div>
+          <div class="q-row">            
+            <button class="q-key" data-key="1">1</button>
+            <button class="q-key" data-key="2">2</button>
+            <button class="q-key" data-key="3">3</button>
+            <button class="q-key" data-key="4">4</button>
+            <button class="q-key" data-key="5">5</button>
+            <button class="q-key" data-key="6">6</button>
+            <button class="q-key" data-key="7">7</button>
+            <button class="q-key" data-key="8">8</button>
+            <button class="q-key" data-key="9">9</button>
+            <button class="q-key" data-key="0">0</button>
           </div>
           <div class="q-row">
             <button class="q-key" data-key="q">Q</button>
@@ -266,6 +293,35 @@
         </div>
       </div>
     </div>
+
+    <!-- Overlay: Aparcar con observaciones -->
+<div id="parkObsOverlay" class="simple-overlay hidden">
+  <div class="simple-dialog" style="width: 520px; max-width: 94vw">
+    <h2 style="margin-top:0">Aparcar ticket</h2>
+
+    <label style="font-size:13px; font-weight:600; display:block; margin:8px 0 6px">
+      Observaciones (opcional)
+    </label>
+
+    <input
+      id="parkObsInput"
+      type="text"
+      placeholder="Ej: Mesa 3, para llevar, sin gluten..."
+      style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid #ccc; font-size:16px;"
+      autocomplete="off"
+    />
+
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
+      <button id="parkObsKeyboardBtn" type="button" class="cart-btn">⌨ Teclado</button>
+    </div>
+
+    <div class="dialog-actions">
+      <button id="parkObsCancelBtn">Cancelar</button>
+      <button id="parkObsOkBtn">Aparcar</button>
+    </div>
+  </div>
+</div>
+
 
     <!-- Overlay apertura de caja -->
     <div id="cashOpenOverlay" class="simple-overlay hidden">
@@ -423,10 +479,12 @@
         <h2 id="msgTitle">Aviso</h2>
         <p id="msgText" style="margin: 10px 0; font-size: 14px"></p>
         <div class="dialog-actions">
+          <button id="msgCancelBtn">Cancelar</button>
           <button id="msgOkBtn">Aceptar</button>
         </div>
       </div>
     </div>
+
     <div id="printerOverlay" class="simple-overlay hidden">
       <div class="simple-dialog">
         <h2>Seleccionar impresora</h2>
@@ -554,16 +612,293 @@
                 class="pay-btn pay-btn-green"
                 type="button"
               >
-                💾 Guardar
+                Confirmar Pago
               </button>
             </div>
           </div>
         </div>
       </div>
     </div>
+    <!-- Overlay: Listado de tickets -->
+    <div id="ticketsOverlay" class="simple-overlay hidden">
+      <div class="parked-modal">
+        <header class="parked-modal-header">
+          <h2>Tickets</h2>
+          <button type="button" id="ticketsCloseBtn" class="parked-close-btn">
+            ✕
+          </button>
+        </header>
+
+        <div class="parked-modal-body">
+          <div class="tickets-tools">
+  <input
+    id="ticketsSearch"
+    type="text"
+    placeholder="Buscar (nº, cliente, total...)"
+    autocomplete="off"
+  />
+
+  <button id="ticketsKeyboardBtn" type="button" class="cart-btn" title="Teclado">
+    ⌨
+  </button>
+
+  <button id="ticketsReloadBtn" type="button" class="cart-btn">
+    Recargar
+  </button>
+</div>
+
+<div id="ticketsList"></div>
+
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Overlay: Devolución -->
+    <div id="refundOverlay" class="simple-overlay hidden">
+      <div class="pay-modal" style="max-width: 920px">
+        <header class="pay-header">
+          <h2 style="margin: 0">Devolución</h2>
+          <button type="button" id="refundCloseX" class="pay-x">✕</button>
+        </header>
+
+        <div style="padding: 12px 14px; font-size: 14px">
+          <div
+            style="
+              display: flex;
+              justify-content: space-between;
+              gap: 12px;
+              flex-wrap: wrap;
+            "
+          >
+            <div>Ticket: <strong id="refundTicketNum">—</strong></div>
+            <div>Cliente: <strong id="refundClient">—</strong></div>
+            <div>Total ticket: <strong id="refundTicketTotal">—</strong></div>
+          </div>
+
+          <div
+            style="
+              margin-top: 12px;
+              border-top: 1px solid #ddd;
+              padding-top: 10px;
+            "
+          >
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 8px;
+                flex-wrap: wrap;
+              "
+            >
+              <strong>Líneas</strong>
+              <div style="display: flex; gap: 8px">
+                <button id="refundSelectAllBtn" type="button" class="cart-btn">
+                  Todo
+                </button>
+                <button id="refundSelectNoneBtn" type="button" class="cart-btn">
+                  Nada
+                </button>
+              </div>
+            </div>
+
+            <div id="refundLines" style="margin-top: 10px"></div>
+
+            <div
+              style="
+                margin-top: 12px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 10px;
+                flex-wrap: wrap;
+              "
+            >
+              <div>
+                Importe a devolver: <strong id="refundAmount">0,00 €</strong>
+              </div>
+              <div style="display: flex; gap: 10px">
+                <button id="refundCancelBtn" class="pay-btn" type="button">
+                  Cancelar
+                </button>
+                <button
+                  id="refundConfirmBtn"
+                  class="pay-btn pay-btn-green"
+                  type="button"
+                >
+                  Confirmar devolución
+                </button>
+              </div>
+            </div>
+
+            <div
+              id="refundError"
+              class="dialog-error"
+              style="margin-top: 10px"
+            ></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="optionsOverlay" class="simple-overlay hidden">
+      <div class="simple-dialog" style="width: 520px; max-width: 94vw">
+        <div
+          style="
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+          "
+        >
+          <h2 style="margin: 0">Opciones</h2>
+          <button type="button" id="optionsCloseX" class="small-btn">✕</button>
+        </div>
+
+        <div style="margin-top: 12px">
+          <div style="font-weight: 700; margin-bottom: 6px">Impresora</div>
+
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 10px;
+              flex-wrap: wrap;
+            "
+          >
+            <div style="font-size: 13px; opacity: 0.85">
+              Impresora actual: <strong id="currentPrinterName">—</strong>
+            </div>
+            <button
+              type="button"
+              id="optionsChangePrinterBtn"
+              class="small-btn"
+            >
+              Cambiar
+            </button>
+          </div>
+        </div>
+
+        <div
+          style="
+            margin-top: 16px;
+            border-top: 1px solid #eee;
+            padding-top: 12px;
+          "
+        >
+          <div style="font-weight: 700; margin-bottom: 6px">Impresión</div>
+
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 10px;
+              flex-wrap: wrap;
+            "
+          >
+            <div style="font-size: 13px; opacity: 0.85">
+              Imprimir automáticamente al cobrar
+            </div>
+
+            <label class="switch">
+              <input type="checkbox" id="autoPrintToggle" />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="dialog-actions" style="margin-top: 16px">
+          <button id="optionsCloseBtn">Cerrar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overlay: Login -->
+    <div id="loginOverlay" class="simple-overlay hidden">
+      <div class="simple-dialog" style="width: 520px; max-width: 94vw">
+        <h2>Iniciar sesión</h2>
+        <p style="margin: 6px 0 12px; font-size: 14px; opacity: 0.85">
+          Elige tu usuario y escribe el pin asignado.
+        </p>
+
+        <div style="font-size: 13px; font-weight: 700; margin-bottom: 6px">
+          Usuario
+        </div>
+
+        <div
+          id="loginUsersBar"
+          class="agent-main-bar"
+          style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px"
+        >
+          <!-- botones por JS -->
+        </div>
+
+        <div style="font-size: 13px; display: block; margin: 10px 0 4px">
+          Pin (Max 4)
+        </div>
+        <input
+          id="loginPass"
+          type="password"
+          autocomplete="current-password"
+          inputmode="numeric"
+          maxlength="4"
+          style="
+            width: 100%;
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+          "
+        />
+        <div class="login-pin-wrap">
+          <div class="login-pin-pad" id="loginPinPad">
+            <button type="button" class="pin-key" data-k="1">1</button>
+            <button type="button" class="pin-key" data-k="2">2</button>
+            <button type="button" class="pin-key" data-k="3">3</button>
+            <button type="button" class="pin-key" data-k="4">4</button>
+            <button type="button" class="pin-key" data-k="5">5</button>
+            <button type="button" class="pin-key" data-k="6">6</button>
+            <button type="button" class="pin-key" data-k="7">7</button>
+            <button type="button" class="pin-key" data-k="8">8</button>
+            <button type="button" class="pin-key" data-k="9">9</button>
+
+            <button type="button" class="pin-key pin-key-warn" data-k="clear">
+              C
+            </button>
+            <button type="button" class="pin-key" data-k="0">0</button>
+            <button type="button" class="pin-key pin-key-fn" data-k="back">
+              ⌫
+            </button>
+          </div>
+        </div>
+
+        <div
+          style="
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 8px;
+          "
+        ></div>
+
+        <div
+          id="loginError"
+          class="dialog-error"
+          style="margin-top: 10px"
+        ></div>
+
+        <div class="dialog-actions">
+          <button id="loginExitBtn">Salir</button>
+          <button id="loginOkBtn">Entrar</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toastContainer" class="toast-container"></div>
 
     <script src="config.js"></script>
-    <div id="toastContainer" class="toast-container"></div>
+
     <script src="renderer.js"></script>
   </body>
 </html>

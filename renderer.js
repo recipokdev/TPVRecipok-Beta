@@ -92,6 +92,17 @@ let TPV_STATE = {
   offline: false, // sin conexión / sin config / ping falló
 };
 
+// Estado para bloquear cierres
+window.__TPV_GUARDS__ = () => {
+  const cashOpen = !!(cashSession && cashSession.open);
+  const parkedCount = Array.isArray(parkedTickets) ? parkedTickets.length : 0;
+
+  return {
+    cashOpen,
+    parkedCount,
+  };
+};
+
 // ===== Referencias básicas =====
 const searchInput = document.getElementById("searchInput");
 const searchClearBtn = document.getElementById("searchClearBtn");
@@ -100,6 +111,7 @@ const searchKeyboardBtn = document.getElementById("searchKeyboardBtn");
 // Terminal / caja
 const terminalNameEl = document.getElementById("terminalName");
 const agentNameEl = document.getElementById("agentName");
+const userNameEl = document.getElementById("userName");
 
 // Overlay selección de terminal / agente
 const terminalOverlay = document.getElementById("terminalOverlay");
@@ -172,6 +184,12 @@ function getTaxRateForProduct(product) {
   if (typeof product.taxRate === "number") return product.taxRate;
   if (product.codimpuesto) return extractTaxRateFromCode(product.codimpuesto);
   return 0;
+}
+
+function refreshLoggedUserUI() {
+  if (!userNameEl) return;
+  const u = (getLoginUser() || "").trim();
+  userNameEl.textContent = u ? u : "---";
 }
 
 function updateCashButtonLabel() {
@@ -513,6 +531,322 @@ function renderCart() {
   }
 }
 
+const LOGIN_TOKEN_KEY = "tpv_login_token";
+const LOGIN_USER_KEY = "tpv_login_user";
+
+let LOGIN_ACTIVE = false;
+
+function isLoggedIn() {
+  return !!getLoginToken() && !!getLoginUser();
+}
+
+function closeAllOverlaysExceptLogin() {
+  // Cierra todo lo que pueda estar abierto por detrás
+  try {
+    hideTerminalOverlay();
+  } catch (e) {}
+  try {
+    hideCashOpenDialog();
+  } catch (e) {}
+  try {
+    closeOptions();
+  } catch (e) {}
+  try {
+    closeParkedModal();
+  } catch (e) {}
+  // Si tienes payOverlay abierto:
+  try {
+    payOverlay?.classList.add("hidden");
+  } catch (e) {}
+  // NumPad/Qwerty si estorban:
+  try {
+    closeNumPad();
+  } catch (e) {}
+  try {
+    closeQwerty();
+  } catch (e) {}
+}
+
+function lockAppUI() {
+  document.body.classList.add("modal-locked");
+}
+function unlockAppUI() {
+  document.body.classList.remove("modal-locked");
+}
+
+function getLoginToken() {
+  return localStorage.getItem(LOGIN_TOKEN_KEY) || "";
+}
+
+function getLoginUser() {
+  return localStorage.getItem(LOGIN_USER_KEY) || "";
+}
+function getLoginAgent() {
+  return localStorage.getItem("tpv_login_codagente") || "";
+}
+function getLoginWarehouse() {
+  return localStorage.getItem("tpv_login_codalmacen") || "";
+}
+
+function setLoginSession({ token, user, codagente, codalmacen }) {
+  localStorage.setItem("tpv_login_token", token || "");
+  localStorage.setItem("tpv_login_user", user || "");
+  localStorage.setItem("tpv_login_codagente", codagente || "");
+  localStorage.setItem("tpv_login_codalmacen", codalmacen || "");
+}
+function clearLoginSession() {
+  localStorage.removeItem("tpv_login_token");
+  localStorage.removeItem("tpv_login_user");
+  localStorage.removeItem("tpv_login_codagente");
+  localStorage.removeItem("tpv_login_codalmacen");
+}
+
+async function openLoginModal() {
+  const overlay = document.getElementById("loginOverlay");
+  const usersBar = document.getElementById("loginUsersBar"); // 👈 nuevo
+  const passInp = document.getElementById("loginPass");
+  const errEl = document.getElementById("loginError");
+  const okBtn = document.getElementById("loginOkBtn");
+  const exitBtn = document.getElementById("loginExitBtn");
+  const pinPad = document.getElementById("loginPinPad");
+  const MAX_PIN = 4;
+
+  if (!overlay || !usersBar || !passInp || !okBtn || !exitBtn) {
+    throw new Error(
+      "Falta el HTML del modal de login (loginUsersBar/loginPass/loginOkBtn/loginExitBtn)."
+    );
+  }
+
+  if (pinPad && !pinPad.dataset.bound) {
+    pinPad.dataset.bound = "1";
+    pinPad.onclick = (e) => {
+      const btn = e.target.closest("button[data-k]");
+      if (!btn) return;
+      const k = btn.getAttribute("data-k");
+
+      if (k === "clear") {
+        passInp.value = "";
+        passInp.focus();
+        return;
+      }
+      if (k === "back") {
+        passInp.value = (passInp.value || "").slice(0, -1);
+        passInp.focus();
+        return;
+      }
+      if (/^\d$/.test(k)) {
+        if ((passInp.value || "").length >= MAX_PIN) return;
+        passInp.value = (passInp.value || "") + k;
+        passInp.focus();
+        return;
+      }
+    };
+  }
+
+  errEl.textContent = "";
+  passInp.value = "";
+  closeAllOverlaysExceptLogin();
+  LOGIN_ACTIVE = true;
+  okBtn.disabled = false;
+  overlay.classList.remove("hidden");
+  lockAppUI();
+
+  // ✅ usuario seleccionado por botones
+  let selectedUser = "";
+
+  // Helper: pintar botones (por ahora desde operators.json o lista estática)
+  // IMPORTANTE: Aquí luego lo conectamos al endpoint que devuelva los nicks desde FacturaScripts.
+  function renderUserButtons(userList) {
+    usersBar.innerHTML = "";
+    userList.forEach((u) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "agent-btn"; // usa tu clase si ya existe
+      btn.textContent = u;
+      btn.onclick = () => {
+        selectedUser = u;
+        // marcar seleccionado
+        [...usersBar.querySelectorAll("button")].forEach((b) =>
+          b.classList.remove("selected")
+        );
+        btn.classList.add("selected");
+        errEl.textContent = "";
+        passInp.focus();
+      };
+      usersBar.appendChild(btn);
+    });
+  }
+
+  // ✅ Lista temporal (pon aquí tus usuarios mientras conectamos al servidor)
+  renderUserButtons(["admin", "demo"]); // <- cámbialo cuando tengas el endpoint
+
+  // si solo hay 1, lo auto-seleccionamos
+  const firstBtn = usersBar.querySelector("button");
+  if (firstBtn) firstBtn.click();
+
+  passInp.focus();
+
+  const kbBtn = document.getElementById("loginKeyboardBtn");
+  if (kbBtn) {
+    kbBtn.onclick = () => openQwertyForInput(passInp); // 👈 función puente
+  }
+
+  const doLogin = async () => {
+    try {
+      errEl.textContent = "";
+      okBtn.disabled = true;
+
+      const u = (selectedUser || "").trim();
+      const p = (passInp.value || "").trim();
+
+      if (!u) {
+        errEl.textContent = "Selecciona un usuario.";
+        okBtn.disabled = false;
+        return false;
+      }
+      if (!p) {
+        errEl.textContent = "Escribe la contraseña.";
+        okBtn.disabled = false;
+        return false;
+      }
+
+      const base = window.TPV_CONFIG?.resolverUrl || "";
+      if (!base) throw new Error("Falta TPV_CONFIG.resolverUrl");
+
+      const url = base.replace(/\/clients\.json(\?.*)?$/i, "/tpv_login.php");
+
+      const body = new URLSearchParams();
+      body.append(
+        "companyEmail",
+        localStorage.getItem("tpv_companyEmail") || ""
+      );
+      body.append("user", u);
+      body.append("pass", p);
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+        },
+        body: body.toString(),
+        cache: "no-store",
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || data.ok !== true) {
+        errEl.textContent = data?.message || "Login incorrecto.";
+        passInp.value = ""; // ✅ limpiar PIN
+        passInp.focus();
+        okBtn.disabled = false;
+        return false;
+      }
+
+      setLoginSession({
+        token: data.token,
+        user: data.user,
+        codagente: data.codagente,
+        codalmacen: data.codalmacen,
+      });
+
+      refreshLoggedUserUI();
+
+      overlay.classList.add("hidden");
+      unlockAppUI();
+      toast?.("Sesión iniciada ✅", "ok", "Login");
+      LOGIN_ACTIVE = false;
+
+      return true;
+    } catch (e) {
+      errEl.textContent = e?.message || String(e);
+      passInp.value = ""; // ✅ limpiar PIN
+      passInp.focus();
+      okBtn.disabled = false;
+      return false;
+    }
+  };
+
+  return await new Promise((resolve) => {
+    okBtn.onclick = async () => {
+      const ok = await doLogin();
+      if (ok) resolve(true); // ✅ solo resolvemos si entra bien
+    };
+    exitBtn.onclick = () => {
+      clearLoginSession();
+      overlay.classList.add("hidden");
+      unlockAppUI();
+      LOGIN_ACTIVE = false; // ✅ importante
+      window.electronAPI?.quitApp?.();
+      okBtn.disabled = false;
+      resolve(false);
+    };
+
+    passInp.onkeydown = (e) => {
+      if (e.key === "Enter") okBtn.click();
+      if (e.key === "Escape") exitBtn.click();
+    };
+  });
+}
+
+// ===== Modal genérico de confirmación (usa msgOverlay) =====
+function confirmModal(title, text) {
+  const overlay = document.getElementById("msgOverlay");
+  const titleEl = document.getElementById("msgTitle");
+  const textEl = document.getElementById("msgText");
+  const okBtn = document.getElementById("msgOkBtn");
+  const cancelBtn = document.getElementById("msgCancelBtn");
+
+  if (!overlay || !titleEl || !textEl || !okBtn || !cancelBtn) {
+    // fallback seguro si falta algo
+    return Promise.resolve(window.confirm(text));
+  }
+
+  titleEl.textContent = title || "Confirmar";
+  textEl.textContent = text || "";
+
+  overlay.classList.remove("hidden");
+  lockAppUI();
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+      window.removeEventListener("keydown", onKey);
+      overlay.classList.add("hidden");
+      unlockAppUI();
+    };
+
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        cleanup();
+        resolve(false);
+      }
+      if (e.key === "Enter") {
+        cleanup();
+        resolve(true);
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+
+    cancelBtn.onclick = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    okBtn.onclick = () => {
+      cleanup();
+      resolve(true);
+    };
+  });
+}
+
+window.TPV_UI?.onGuard?.(async ({ title, text }) => {
+  await confirmModal(title || "Aviso", text || "");
+});
+
+// ===== Toasts (notificaciones breves) =====
+
 function toast(message, type = "info", title = "") {
   const container = document.getElementById("toastContainer");
   if (!container) return;
@@ -851,7 +1185,7 @@ function getCartTotal(items) {
   }, 0);
 }
 
-function parkCurrentCart() {
+function parkCurrentCart(obs = "") {
   if (!cart || cart.length === 0) {
     toast("No hay productos para aparcar.", "warn", "Aparcar");
     return;
@@ -867,12 +1201,15 @@ function parkCurrentCart() {
     ? cartClientInput.value || "Cliente"
     : "Cliente";
 
+  const observation = String(obs || "").trim();
+
   parkedTickets.push({
     id: parkedCounter,
     createdAt: new Date(),
     items: snapshot,
     total,
-    clientName, // 👈 nuevo campo
+    clientName,
+    obs: observation, // ✅ NUEVO
   });
 
   cart = [];
@@ -880,7 +1217,6 @@ function parkCurrentCart() {
   updateParkedCountBadge();
 
   setStatusText("Ticket aparcado.");
-  toast("Ticket aparcado ✅", "ok", "Aparcar");
 }
 
 // ===== Modal de tickets aparcados =====
@@ -918,12 +1254,19 @@ function renderParkedTicketsModal() {
     return;
   }
 
+  const getItemName = (it) =>
+    (it.name || it.nombre || it.descripcion || it.productName || "Producto")
+      .toString()
+      .trim();
+
+  const getItemQty = (it) => Number(it.qty ?? it.cantidad ?? 1) || 1;
+
   parkedTickets.forEach((t, index) => {
     const div = document.createElement("div");
-    div.className = "parked-ticket-item";
+    div.className = "parked-ticket-item parked-ticket-compact";
     div.dataset.index = index;
 
-    const fecha = t.createdAt ? new Date(t.createdAt) : new Date(); // por si acaso
+    const fecha = t.createdAt ? new Date(t.createdAt) : new Date();
 
     const hora = fecha.toLocaleTimeString("es-ES", {
       hour: "2-digit",
@@ -932,23 +1275,82 @@ function renderParkedTicketsModal() {
 
     const totalTexto = t.total != null ? t.total.toFixed(2) + " €" : "—";
 
-    const numLineas = (t.items || []).length;
+    // ✅ “tipos” = productos distintos (por nombre/id)
+    const items = Array.isArray(t.items) ? t.items : [];
+    const keyOf = (it) =>
+      String(it.idproducto || it.id || getItemName(it)).toLowerCase();
+    const uniqueMap = new Map();
+    items.forEach((it) => {
+      const k = keyOf(it);
+      if (!uniqueMap.has(k)) uniqueMap.set(k, it);
+    });
+    const tipos = uniqueMap.size;
+
+    // ✅ resumen de productos (3 máx)
+    const preview = Array.from(uniqueMap.values())
+      .slice(0, 3)
+      .map((it) => `${getItemQty(it)}× ${getItemName(it)}`)
+      .join(" · ");
+
+    const extra = tipos > 3 ? ` · +${tipos - 3}` : "";
+
+    const obs = (t.obs || "").trim();
 
     div.innerHTML = `
-  <div class="parked-ticket-main">
-    <span>Ticket #${t.id}</span>
-    <span>${totalTexto}</span>
+      <div class="pt-left">
+        <div class="pt-title">Ticket #${t.id}</div>
+        <div class="pt-sub">${hora} · ${escapeHtml(
+      t.clientName || "Cliente"
+    )}</div>
+      </div>
+
+      <div class="pt-mid">
+        ${
+          obs
+            ? `<div class="pt-obs">${escapeHtml(obs)}</div>`
+            : `<div class="pt-obs pt-obs-muted">Sin observación</div>`
+        }
+        <div class="pt-items">${escapeHtml(preview + extra)}</div>
+      </div>
+
+      <div class="pt-right">
+  <div class="pt-right-top">
+    <div class="pt-total">${totalTexto}</div>
+    <button type="button" class="pt-del" title="Eliminar ticket aparcado" aria-label="Eliminar">🗑</button>
   </div>
-  <div class="parked-ticket-sub">
-    <span>${hora}</span>
-    <span>${numLineas} línea${numLineas === 1 ? "" : "s"}</span>
-  </div>
-  ${
-    t.clientName
-      ? `<div class="parked-ticket-sub"><span>${t.clientName}</span></div>`
-      : ""
-  }
-`;
+
+  
+</div>
+
+
+
+    `;
+
+    const delBtn = div.querySelector(".pt-del");
+    if (delBtn) {
+      delBtn.onclick = async (e) => {
+        e.stopPropagation();
+
+        const ok = await confirmModal(
+          "Eliminar ticket aparcado",
+          `¿Seguro que quieres eliminar el Ticket #${t.id}?`
+        );
+        if (!ok) return;
+
+        parkedTickets.splice(index, 1);
+        updateParkedCountBadge();
+
+        // Si ya no quedan, cerramos modal
+        if (!parkedTickets.length) {
+          closeParkedModal();
+          toast("No quedan tickets aparcados.", "info", "Aparcados");
+          return;
+        }
+
+        renderParkedTicketsModal();
+        toast("Ticket aparcado eliminado.", "ok", "Aparcados");
+      };
+    }
 
     div.onclick = () => {
       restoreParkedCartByIndex(index);
@@ -1131,6 +1533,8 @@ function getAgentsForTerminal(terminalId) {
 
 // Overlay para elegir TPV / agente
 function showTerminalOverlay(mode = "session") {
+  if (LOGIN_ACTIVE) return;
+
   if (!terminalOverlay) return;
 
   terminalOverlayMode = mode;
@@ -1263,6 +1667,8 @@ function updateCloseSummary(countedTotal) {
 
 // ---- Apertura / cierre de caja ----
 function openCashOpenDialog(mode = "open") {
+  if (LOGIN_ACTIVE) return;
+
   if (!cashOpenOverlay) return;
   if (!currentTerminal) {
     toast("Selecciona un terminal primero.", "warn", "Caja");
@@ -1365,9 +1771,21 @@ function updateCashOpenTotal() {
   cashOpenTotalEl.textContent = total.toFixed(2).replace(".", ",") + " €";
 }
 
-function confirmCashOpening() {
+async function confirmCashOpening() {
   cashSession.open = true;
   cashSession.openedAt = new Date().toISOString();
+
+  // ✅ Crear log en FacturaScripts (sin romper si falla)
+  try {
+    await apiOpenCashInFS();
+  } catch (e) {
+    console.warn("No se pudo abrir caja en FacturaScripts:", e?.message || e);
+    toast(
+      "Caja abierta, pero no se pudo registrar en FacturaScripts.",
+      "warn",
+      "Caja"
+    );
+  }
 
   hideCashOpenDialog();
 
@@ -1385,8 +1803,20 @@ function confirmCashOpening() {
   console.log("Caja abierta:", cashSession);
 }
 
-function confirmCashClosing() {
+async function confirmCashClosing() {
   cashSession.open = false;
+
+  // ✅ Cerrar log en FacturaScripts (antes de limpiar estado local)
+  try {
+    await apiCloseCashInFS();
+  } catch (e) {
+    console.warn("No se pudo cerrar caja en FacturaScripts:", e?.message || e);
+    toast(
+      "Caja cerrada, pero no se pudo registrar el cierre en FacturaScripts.",
+      "warn",
+      "Caja"
+    );
+  }
 
   hideCashOpenDialog();
   updateCashButtonLabel();
@@ -1396,6 +1826,7 @@ function confirmCashClosing() {
   currentAgent = null;
   if (terminalNameEl) terminalNameEl.textContent = "---";
   if (agentNameEl) agentNameEl.textContent = "---";
+  refreshLoggedUserUI();
 
   if (mainAgentBar) mainAgentBar.innerHTML = ""; // limpiar barra principal
 
@@ -1421,6 +1852,59 @@ function confirmCashClosing() {
     printBtn.disabled = true;
   }
   lastTicket = null;
+}
+
+function resetTPVToEmpty() {
+  unlockAppUI();
+  // Cierra overlays que pudieran estar abiertos
+  try {
+    hideTerminalOverlay();
+  } catch (e) {}
+  try {
+    hideCashOpenDialog();
+  } catch (e) {}
+  try {
+    closeOptions();
+  } catch (e) {}
+  try {
+    closeParkedModal();
+  } catch (e) {}
+  try {
+    payOverlay?.classList.add("hidden");
+  } catch (e) {}
+
+  // Estado de caja / selección
+  cashSession.open = false;
+  currentTerminal = null;
+  currentAgent = null;
+
+  if (terminalNameEl) terminalNameEl.textContent = "---";
+  if (agentNameEl) agentNameEl.textContent = "---";
+
+  if (mainAgentBar) mainAgentBar.innerHTML = "";
+
+  // Limpia carrito y UI productos
+  selectedCategory = null;
+  activeFamilyParentId = null;
+  activeSubfamilyId = null;
+  cart = [];
+  renderCart();
+
+  const grid = document.getElementById("productsGrid");
+  const catContainer = document.getElementById("categories");
+  const subCatContainer = document.getElementById("subcategories");
+  if (grid) grid.innerHTML = "";
+  if (catContainer) catContainer.innerHTML = "";
+  if (subCatContainer) subCatContainer.innerHTML = "";
+
+  mainUiRendered = false;
+  lastTicket = null;
+
+  const printBtn = document.getElementById("printTicketBtn");
+  if (printBtn) printBtn.disabled = true;
+
+  updateCashButtonLabel();
+  setStatusText("—");
 }
 
 // ===== Llamadas a API Recipok / FacturaScripts =====
@@ -1565,18 +2049,144 @@ if (cashOpenCancelBtn) {
 }
 
 if (cashOpenOkBtn) {
-  cashOpenOkBtn.onclick = () => {
+  cashOpenOkBtn.onclick = async () => {
     if (cashDialogMode === "open") {
-      confirmCashOpening();
-    } else {
-      confirmCashClosing();
+      await confirmCashOpening();
+      return;
     }
+
+    // ✅ BLOQUEO: no permitir cerrar caja con tickets aparcados
+    const parkedCount = Array.isArray(parkedTickets) ? parkedTickets.length : 0;
+
+    if (parkedCount > 0) {
+      await confirmModal(
+        "No puedes cerrar la caja",
+        `Tienes ${parkedCount} ticket(s) aparcado(s).\n\nRecupéralos (o elimínalos) antes de cerrar la caja.`
+      );
+      openParkedModal(); // 👈 llevarle directo a los aparcados
+      return;
+    }
+
+    await confirmCashClosing();
   };
+}
+
+// ===== Caja (logs) en FacturaScripts =====
+
+// 1) Request genérico (form-urlencoded) para POST/PUT/DELETE
+async function apiWrite(resource, method = "POST", fields = {}) {
+  const cfg = window.RECIPOK_API || {};
+  if (!cfg.baseUrl || !cfg.apiKey) throw new Error("Config API no definida");
+
+  const base = cfg.baseUrl.replace(/\/+$/, "");
+  const url = `${base}/${String(resource).replace(/^\/+/, "")}`;
+
+  const body = new URLSearchParams();
+  Object.entries(fields || {}).forEach(([k, v]) => {
+    if (v === undefined || v === null) return;
+    body.append(k, String(v));
+  });
+
+  const res = await fetch(url, {
+    method,
+    headers: {
+      Accept: "application/json",
+      Token: cfg.apiKey,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
+
+  if (res.status === 429) throw new Error("API 429 (demasiadas peticiones).");
+
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok || (data && data.status === "error")) {
+    throw new Error(data?.message || `HTTP ${res.status} en ${resource}`);
+  }
+
+  return data;
+}
+
+// 2) Fecha/hora estilo FacturaScripts: "YYYY-MM-DD HH:mm:ss"
+function nowFs() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+// 3) Abrir/cerrar caja remota (tpvcajas)
+// NOTA: si en tu FS el recurso no es "tpvcajas", lo cambiamos al real.
+async function apiOpenCashInFS() {
+  if (TPV_STATE.offline || TPV_STATE.locked) return null;
+  if (!currentTerminal?.id) throw new Error("No hay terminal seleccionado");
+
+  const payload = {
+    idtpv: Number(currentTerminal.id),
+    fechaini: nowFs(),
+    dineroini: Number(cashSession.openingTotal || 0),
+    nick: getLoginUser(), // ✅
+    observaciones: "",
+  };
+
+  const resp = await apiWrite("tpvcajas", "POST", payload);
+
+  const doc = resp?.doc || resp?.data || resp;
+  const remoteId = doc?.idcaja ?? null;
+
+  cashSession.remoteCajaId = remoteId;
+  return resp;
+}
+
+async function apiCloseCashInFS() {
+  if (TPV_STATE.offline || TPV_STATE.locked) return null;
+
+  const remoteId = cashSession.remoteCajaId;
+  if (!remoteId) {
+    console.warn("No hay cashSession.remoteCajaId: no cierro caja en FS.");
+    return null;
+  }
+
+  const opening = Number(cashSession.openingTotal || 0);
+  const cashIncome = Number(cashSession.cashSalesTotal || 0);
+  const movements = Number(cashSession.cashMovementsTotal || 0);
+
+  const expectedCash = opening + cashIncome + movements; // totalcaja
+  const counted = Number(cashSession.closingTotal || 0); // dinerofin
+  const diff = counted - expectedCash; // diferencia
+
+  // Si quieres contar tickets reales, lo calculamos luego.
+  const numtickets = 0;
+  const totaltickets = Number(cashSession.totalSales || 0);
+
+  const payload = {
+    fechafin: nowFs(),
+    dinerofin: counted,
+    ingresos: cashIncome,
+    nick: getLoginUser(),
+    totalmovi: movements,
+    totalcaja: expectedCash,
+    diferencia: diff,
+    numtickets,
+    totaltickets,
+    observaciones: "",
+  };
+
+  return await apiWrite(`tpvcajas/${remoteId}`, "PUT", payload);
 }
 
 // Botón abrir/cerrar caja (header "Caja")
 if (cashHeaderBtn) {
   cashHeaderBtn.onclick = async () => {
+    // 🔐 Bloquear caja si no hay login válido
+    if (!getLoginToken() || !getLoginUser()) {
+      await openLoginModal();
+      // si aún sigue sin login, cortar aquí
+      if (!getLoginToken() || !getLoginUser()) return;
+    }
+
     // ✅ Si está BLOQUEADO u OFFLINE, siempre permitir reintentar sin reiniciar
     if (TPV_STATE.locked || TPV_STATE.offline) {
       await forceReconnectFlow(); // abre modal email y revalida clients.json
@@ -1585,6 +2195,25 @@ if (cashHeaderBtn) {
 
     // Comportamiento normal
     if (cashSession.open) {
+      const parkedCount = Array.isArray(parkedTickets)
+        ? parkedTickets.length
+        : 0;
+
+      // ✅ 1) Si hay aparcados -> avisar ANTES del conteo de billetes
+      if (parkedCount > 0) {
+        await confirmModal(
+          "Tickets aparcados",
+          `Tienes ${parkedCount} ticket${
+            parkedCount === 1 ? "" : "s"
+          } aparcado${
+            parkedCount === 1 ? "" : "s"
+          }.\n\nAntes de cerrar la caja, recupera o elimina los tickets aparcados.`
+        );
+        openParkedModal(); // abre el listado para resolverlo
+        return;
+      }
+
+      // ✅ 2) Si no hay aparcados, ahora sí: modal de billetes
       openCashOpenDialog("close");
       return;
     }
@@ -1619,6 +2248,12 @@ if (agentNameEl) {
 
     // Con 1 o más agentes abrimos el overlay para que se vea la lista actual
     showTerminalOverlay("agentSwitch");
+  });
+}
+
+if (userNameEl) {
+  userNameEl.addEventListener("click", async () => {
+    await doLogoutFlow();
   });
 }
 
@@ -1969,6 +2604,8 @@ async function loadDataFromApi() {
   }
 }
 
+refreshLoggedUserUI();
+
 let companyInfo = null; // ya lo tienes
 let companyLogoUrl = ""; // ✅ GLOBAL
 
@@ -2138,7 +2775,9 @@ function buildTicketPayloadFromCart() {
 
   const lineas = cart.map((item) => {
     const descripcionBase = item.name || "";
-    const descripcion = descripcionBase.trim() || "Producto TPV";
+    const descripcion = item.secondaryName
+      ? `${item.name} - ${item.secondaryName}`
+      : item.name;
 
     const linea = {
       descripcion,
@@ -2162,13 +2801,193 @@ function buildTicketPayloadFromCart() {
   const payload = {
     codcliente,
     lineas,
-    pagada: 0,
+    pagada: 1,
   };
 
   // ⚠ De momento NO mandamos fecha, hora, serie, forma de pago ni agente.
   // Cuando todo vaya fino, los añadimos uno a uno.
 
   return payload;
+}
+
+async function updateFacturaCliente(idfactura, fields) {
+  const cfg = window.RECIPOK_API || {};
+  const base = cfg.baseUrl.replace(/\/+$/, "");
+  const url = `${base}/facturaclientes/${idfactura}`;
+
+  const body = new URLSearchParams();
+  Object.entries(fields).forEach(([k, v]) => {
+    if (v === undefined || v === null) return;
+    body.append(k, String(v));
+  });
+
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Accept: "application/json",
+      Token: cfg.apiKey,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok || (data && data.status === "error")) {
+    throw new Error(data?.message || `Error actualizando factura ${idfactura}`);
+  }
+  return data;
+}
+
+// ===== Opciones (⚙️) =====
+const OPTIONS_AUTOPRINT_KEY = "tpv_autoPrint";
+
+const optionsBtn = document.getElementById("optionsBtn");
+const optionsOverlay = document.getElementById("optionsOverlay");
+const optionsCloseX = document.getElementById("optionsCloseX");
+const optionsCloseBtn = document.getElementById("optionsCloseBtn");
+
+const optionsChangePrinterBtn = document.getElementById(
+  "optionsChangePrinterBtn"
+);
+const currentPrinterNameEl = document.getElementById("currentPrinterName");
+const autoPrintToggle = document.getElementById("autoPrintToggle");
+
+function isAutoPrintEnabled() {
+  return localStorage.getItem(OPTIONS_AUTOPRINT_KEY) === "1";
+}
+function setAutoPrintEnabled(v) {
+  localStorage.setItem(OPTIONS_AUTOPRINT_KEY, v ? "1" : "0");
+}
+
+function refreshOptionsUI() {
+  if (autoPrintToggle) autoPrintToggle.checked = isAutoPrintEnabled();
+
+  // Estas funciones ya deberían existir por tu printerOverlay:
+  // - getSavedPrinterName()
+  if (currentPrinterNameEl) {
+    const p =
+      typeof getSavedPrinterName === "function" ? getSavedPrinterName() : "";
+    currentPrinterNameEl.textContent = p ? p : "—";
+  }
+}
+
+function openOptions() {
+  refreshOptionsUI();
+  optionsOverlay?.classList.remove("hidden");
+}
+
+function closeOptions() {
+  optionsOverlay?.classList.add("hidden");
+}
+
+optionsBtn?.addEventListener("click", openOptions);
+optionsCloseX?.addEventListener("click", closeOptions);
+optionsCloseBtn?.addEventListener("click", closeOptions);
+
+// cerrar al click fuera del diálogo
+optionsOverlay?.addEventListener("click", (e) => {
+  if (e.target === optionsOverlay) closeOptions();
+});
+
+// Toggle auto-print
+autoPrintToggle?.addEventListener("change", () => {
+  setAutoPrintEnabled(!!autoPrintToggle.checked);
+  if (typeof toast === "function") {
+    toast(
+      autoPrintToggle.checked
+        ? "Auto-impresión activada ✅"
+        : "Auto-impresión desactivada",
+      "info",
+      "Opciones"
+    );
+  }
+});
+
+// Cambiar impresora desde Opciones
+optionsChangePrinterBtn?.addEventListener("click", async () => {
+  try {
+    // 1) Cierra opciones para que no tape nada
+    closeOptions();
+
+    // 2) Abre selector de impresora (PROMESA)
+    const chosen = await openPrinterPicker();
+
+    // 3) Si eligió, guarda y refresca UI
+    if (chosen) {
+      savePrinterName(chosen);
+    }
+    refreshOptionsUI();
+
+    // 4) Vuelve a abrir opciones (si quieres que el usuario siga ahí)
+    openOptions();
+  } catch (e) {
+    console.warn(e);
+    toast?.("No se pudo cambiar impresora", "err", "Impresión");
+    // por si falla, reabre opciones igualmente
+    openOptions();
+  }
+});
+
+async function createRefundInFacturaScripts(
+  facturaRow,
+  qtyByLineId,
+  lineasFactura
+) {
+  const codcliente =
+    facturaRow?._raw?.codcliente ||
+    window.RECIPOK_API?.defaultCodClienteTPV ||
+    "1";
+
+  const lineas = [];
+  for (const l of lineasFactura || []) {
+    const id = Number(l.idlinea);
+    const q = Number(qtyByLineId?.[id] || 0);
+    if (!(q > 0)) continue;
+
+    lineas.push({
+      descripcion: `DEV - ${l.descripcion || "Producto"}`,
+      cantidad: -q,
+      pvpunitario: Number(l.pvpunitario || 0),
+      codimpuesto: l.codimpuesto || undefined,
+    });
+  }
+
+  if (!lineas.length)
+    throw new Error("Selecciona al menos 1 línea para devolver.");
+
+  // 1) Crear factura negativa
+  const payload = {
+    codcliente,
+    lineas,
+    pagada: 1,
+    codpago: facturaRow.codpago || null,
+    // 👉 importante: forzar serie R desde el inicio (si el endpoint lo respeta)
+    serie: "R",
+  };
+
+  const resp = await createTicketInFacturaScripts(payload);
+
+  // 2) Enlazar como rectificativa (aunque el POST ignore codserie)
+  const doc = resp.doc || resp.factura || resp.data || resp;
+  const newId = doc?.idfactura || doc?.id || null;
+  const originalId = facturaRow.idfactura;
+  const originalCodigo = facturaRow.codigo || facturaRow._raw?.codigo || "";
+
+  if (newId && originalId) {
+    await updateFacturaCliente(newId, {
+      codserie: "R",
+      idfacturarect: originalId,
+      codigorect: originalCodigo,
+      idestado: 11,
+      pagada: 1,
+      codpago: facturaRow.codpago || "",
+      idtpv: currentTerminal?.id || "",
+      codalmacen: currentTerminal?.codalmacen || "",
+      codagente: currentAgent?.codagente || "",
+    });
+  }
+
+  return resp;
 }
 
 async function createTicketInFacturaScripts(ticketPayload) {
@@ -2698,6 +3517,17 @@ async function onPayButtonClick() {
     const fecha = facturaResp?.fecha;
     const codigofactura = facturaResp?.codigo;
 
+    if (idfactura) {
+      await updateFacturaCliente(idfactura, {
+        idestado: 11,
+        pagada: 1,
+        codpago: ticketPayload.codpago || "",
+        idtpv: currentTerminal?.id || "",
+        codalmacen: currentTerminal?.codalmacen || "",
+        codagente: currentAgent?.codagente || "",
+      });
+    }
+
     // ✅ Crear 1 recibo por cada método de pago usado (pago mixto)
     if (idfactura && codcliente) {
       const today = new Date().toISOString().slice(0, 10);
@@ -2723,6 +3553,12 @@ async function onPayButtonClick() {
       console.warn(
         "No hay idfactura/codcliente: no se pudieron crear recibos."
       );
+    }
+    // ✅ Limpieza: elimina el recibo "total" automático y deja SOLO los recibos por método
+    try {
+      await cleanupRecibosFactura(idfactura, payResult.pagos || []);
+    } catch (e) {
+      console.warn("cleanupRecibosFactura falló:", e?.message || e);
     }
 
     if (idfactura) {
@@ -2784,6 +3620,19 @@ async function onPayButtonClick() {
       "ok",
       "Cobrar"
     );
+    // ✅ Auto-impresión (solo si el check está activado)
+    if (isAutoPrintEnabled()) {
+      try {
+        await printTicket(lastTicket);
+      } catch (e) {
+        console.warn("Auto-impresión falló:", e?.message || e);
+        toast(
+          "Venta cobrada, pero no se pudo imprimir automáticamente.",
+          "warn",
+          "Impresión"
+        );
+      }
+    }
   } catch (err) {
     console.error("Error al cobrar:", err);
     toast("Error al cobrar: " + (err.message || err), "err", "Cobrar");
@@ -2815,9 +3664,10 @@ const printTicketBtn = document.getElementById("printTicketBtn");
 if (printTicketBtn) {
   printTicketBtn.onclick = () => {
     if (!lastTicket) {
-      alert("No hay ningún ticket para imprimir.");
+      toast("No hay ningún ticket para imprimir.", "warn", "Impresión");
       return;
     }
+
     printTicket(lastTicket);
   };
 }
@@ -3038,7 +3888,7 @@ function payKeyAppend(ch) {
   v = v.replace(",", ".");
   if (v.includes(".")) {
     const [a, b] = v.split(".");
-    v = a + "." + (b || "").slice(0, 2);
+    v = a + "." + (b || "").slice(0, 8); // permitir hasta 8 decimales por si acaso
   }
 
   payModalState.values[cod] = v;
@@ -3201,11 +4051,55 @@ async function openPayModal(total) {
 
 // Botón aparcar ticket
 const parkBtn = document.getElementById("parkBtn");
-if (parkBtn) {
-  parkBtn.onclick = () => {
-    parkCurrentCart();
-  };
+
+const parkObsOverlay = document.getElementById("parkObsOverlay");
+const parkObsInput = document.getElementById("parkObsInput");
+const parkObsCancelBtn = document.getElementById("parkObsCancelBtn");
+const parkObsOkBtn = document.getElementById("parkObsOkBtn");
+const parkObsKeyboardBtn = document.getElementById("parkObsKeyboardBtn");
+
+function openParkObsModal() {
+  parkObsInput.value = "";
+  parkObsOverlay.classList.remove("hidden");
+  parkObsInput.focus();
 }
+
+function closeParkObsModal() {
+  parkObsOverlay.classList.add("hidden");
+}
+
+parkBtn?.addEventListener("click", () => {
+  // 1) No permitir aparcar si el carrito está vacío
+  if (!Array.isArray(cart) || cart.length === 0) {
+    toast("No puedes aparcar un ticket vacío.", "warn", "Aparcar");
+    return;
+  }
+
+  // 2) (Opcional pero recomendado) exigir terminal seleccionada antes de aparcar
+  if (!currentTerminal) {
+    toast("Debes seleccionar un terminal antes de aparcar.", "warn", "Aparcar");
+    return;
+  }
+
+  // 3) Si todo OK, recién ahí abrimos el modal de observación
+  openParkObsModal();
+});
+
+parkObsCancelBtn?.addEventListener("click", () => {
+  closeParkObsModal();
+});
+
+parkObsOkBtn?.addEventListener("click", () => {
+  const obs = parkObsInput.value.trim();
+  closeParkObsModal();
+  parkCurrentCart(obs || "");
+});
+
+parkObsKeyboardBtn?.addEventListener("click", () => {
+  // Reutiliza tu teclado QWERTY actual
+  // Necesitas una función tipo: openQwerty(targetInput)
+  openQwertyForInput(parkObsInput);
+});
 
 // Botón ver/recuperar aparcados
 const parkedListBtn = document.getElementById("parkedListBtn");
@@ -3215,14 +4109,221 @@ if (parkedListBtn) {
   };
 }
 
-// Botón "Tickets" (histórico) aún sin funcionalidad
-const ticketsListBtn = document.getElementById("ticketsListBtn");
-if (ticketsListBtn) {
-  ticketsListBtn.onclick = () => {
-    alert(
-      "El listado de tickets se implementará más adelante, a partir de FacturaScripts."
+let ticketsCache = []; // última lista cargada
+let ticketsLoading = false; // evita dobles cargas
+
+const ticketsOverlay = document.getElementById("ticketsOverlay");
+const ticketsCloseBtn = document.getElementById("ticketsCloseBtn");
+const ticketsList = document.getElementById("ticketsList");
+const ticketsReloadBtn = document.getElementById("ticketsReloadBtn");
+const ticketsSearch = document.getElementById("ticketsSearch");
+
+async function openTicketsModal() {
+  if (!ticketsOverlay) {
+    toast(
+      "Falta el HTML del modal de tickets (#ticketsOverlay).",
+      "err",
+      "Tickets"
     );
+    return;
+  }
+
+  ticketsOverlay.classList.remove("hidden");
+  await loadAndRenderTickets();
+}
+
+function closeTicketsModal() {
+  if (!ticketsOverlay) return;
+  ticketsOverlay.classList.add("hidden");
+}
+
+async function loadAndRenderTickets() {
+  if (!ticketsList) return;
+  if (ticketsLoading) return;
+  ticketsLoading = true;
+
+  try {
+    ticketsList.innerHTML = "Cargando…";
+    ticketsCache = await fetchUltimosTickets(60);
+    renderTicketsList(ticketsCache);
+  } catch (e) {
+    console.error(e);
+    ticketsList.innerHTML = `<div class="parked-ticket-empty">Error cargando tickets.</div>`;
+    toast("Error cargando tickets: " + (e?.message || e), "err", "Tickets");
+  } finally {
+    ticketsLoading = false;
+  }
+}
+
+function renderTicketsList(tickets) {
+  if (!ticketsList) return;
+
+  const term = (ticketsSearch?.value || "").trim().toLowerCase();
+  let filtered = Array.isArray(tickets) ? tickets : [];
+
+  if (term) {
+    filtered = filtered.filter((t) => {
+      const s = `${t.codigo || ""} ${t.nombrecliente || ""} ${t.total || ""} ${
+        t.codpago || ""
+      }`.toLowerCase();
+      return s.includes(term);
+    });
+  }
+
+  ticketsList.innerHTML = "";
+
+  if (!filtered.length) {
+    ticketsList.innerHTML = `<div class="parked-ticket-empty">No hay tickets.</div>`;
+    return;
+  }
+
+  filtered.forEach((t) => {
+    const div = document.createElement("div");
+    div.className = "ticket-row";
+
+    const num = t.codigo || `#${t.idfactura}`;
+    const cliente = t.nombrecliente || "Cliente";
+    const fechaHora = `${t.fecha || ""} ${t.hora || ""}`.trim();
+    const totalNum = Number(t.total || 0);
+    const total = eurES(totalNum);
+    const pago = t.codpago || "—";
+
+    // ✅ ticket devuelto = total negativo
+    const isRefunded = totalNum < 0;
+    if (isRefunded) div.classList.add("ticket-refunded");
+
+    div.innerHTML = `
+      <div class="ticket-left">
+        <div class="ticket-num">${escapeHtml(num)}</div>
+
+        <div class="ticket-mid">
+          <span class="ticket-client">${escapeHtml(cliente)}</span>
+          <span class="ticket-pay">${escapeHtml(pago)}</span>
+          <span class="ticket-id">ID ${t.idfactura}</span>
+        </div>
+
+        <div class="ticket-bot">${escapeHtml(fechaHora)}</div>
+      </div>
+
+      <div class="ticket-right">
+        <div class="ticket-total">${total}</div>
+
+        <div class="ticket-actions">
+          <button type="button" class="ticket-btn ticket-print" title="Imprimir">🖨</button>
+          ${
+            isRefunded
+              ? ""
+              : `<button type="button" class="ticket-btn ticket-refund" title="Devolver">↩</button>`
+          }
+        </div>
+      </div>
+    `;
+
+    // ✅ imprimir siempre
+    const printBtn = div.querySelector(".ticket-print");
+    if (printBtn) {
+      printBtn.onclick = async (e) => {
+        e.stopPropagation();
+        await imprimirFacturaHistorica(t);
+      };
+    }
+
+    // ✅ devolver solo si existe el botón (no devueltos)
+    const refundBtn = div.querySelector(".ticket-refund");
+    if (refundBtn) {
+      refundBtn.onclick = async (e) => {
+        e.stopPropagation();
+        await openRefundForFactura(t);
+      };
+    }
+
+    // ✅ click en la fila: solo abre devolución si NO está devuelto
+    div.onclick = async () => {
+      if (isRefunded) return;
+      await openRefundForFactura(t);
+    };
+
+    ticketsList.appendChild(div);
+  });
+}
+
+// Bind botones del overlay
+const ticketsKeyboardBtn = document.getElementById("ticketsKeyboardBtn");
+
+ticketsKeyboardBtn?.addEventListener("click", () => {
+  if (!ticketsSearch) return;
+  openQwertyForInput(ticketsSearch);
+});
+if (ticketsCloseBtn) ticketsCloseBtn.onclick = closeTicketsModal;
+if (ticketsReloadBtn) ticketsReloadBtn.onclick = loadAndRenderTickets;
+let ticketsSearchTimer = null;
+
+if (ticketsSearch) {
+  ticketsSearch.oninput = () => {
+    clearTimeout(ticketsSearchTimer);
+    ticketsSearchTimer = setTimeout(() => {
+      // ✅ usa el cache ya cargado
+      renderTicketsList(ticketsCache);
+    }, 250);
   };
+}
+
+function mapFacturaRowToTicketRow(f) {
+  return {
+    idfactura: f.idfactura,
+    codigo: f.codigo || f.numero || f.codigofactura || null,
+    nombrecliente: f.nombrecliente || f.cliente || f.razonsocial || "",
+    total: f.total != null ? Number(f.total) : 0,
+    codpago: f.codpago || f.formapago || "",
+    fecha: f.fecha || "",
+    hora: f.hora || "",
+    _raw: f,
+  };
+}
+
+function filterLastNDays(list, days = 30) {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  return (Array.isArray(list) ? list : []).filter((t) => {
+    const ts = parseFechaHoraFS(t.fecha, t.hora);
+    return ts >= cutoff;
+  });
+}
+
+// Botón "Tickets" (YA FUNCIONAL)
+const ticketsListBtn = document.getElementById("ticketsListBtn");
+if (ticketsListBtn) ticketsListBtn.onclick = openTicketsModal;
+
+function parseFechaHoraFS(fecha, hora) {
+  const f = String(fecha || "").trim();
+  const h = String(hora || "00:00:00").trim();
+
+  let yyyy, mm, dd;
+
+  // dd-mm-yyyy
+  let m = f.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  if (m) {
+    dd = Number(m[1]);
+    mm = Number(m[2]) - 1;
+    yyyy = Number(m[3]);
+  } else {
+    // yyyy-mm-dd
+    m = f.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return 0;
+    yyyy = Number(m[1]);
+    mm = Number(m[2]) - 1;
+    dd = Number(m[3]);
+  }
+
+  const [HH, MM, SS] = h.split(":").map((x) => Number(x || 0));
+  return new Date(yyyy, mm, dd, HH, MM, SS).getTime();
+}
+
+function sortTicketsByFechaDesc(list) {
+  return (Array.isArray(list) ? list : []).slice().sort((a, b) => {
+    const ta = parseFechaHoraFS(a.fecha, a.hora);
+    const tb = parseFechaHoraFS(b.fecha, b.hora);
+    return tb - ta;
+  });
 }
 
 function normalizeEmail(email) {
@@ -3374,6 +4475,16 @@ async function forceReconnectFlow() {
   }
 }
 
+async function bootstrapApp() {
+  await bootstrapCompany(); // ya lo tienes (email->apiKey->baseUrl)
+  const ok = await openLoginModal();
+  if (!ok) return;
+
+  await loadDataFromApi(); // ya lo tienes
+}
+
+/*bootstrapApp();*/
+
 async function bootstrapCompany() {
   console.log("bootstrapCompany() ejecutándose...");
 
@@ -3503,24 +4614,11 @@ async function bootstrapCompany() {
 }
 
 async function fetchFacturaClienteById(idfactura) {
-  const cfg = window.RECIPOK_API || {};
-  if (!cfg.baseUrl || !cfg.apiKey) throw new Error("Config API no definida");
-
-  const base = cfg.baseUrl.replace(/\/+$/, "");
-  const url = `${base}/facturaclientes?limit=50&order=desc`;
-
-  const res = await fetch(url, {
-    headers: { Accept: "application/json", Token: cfg.apiKey },
-    cache: "no-store",
+  const data = await fetchApiResourceWithParams("facturaclientes", {
+    "filter[idfactura]": idfactura,
+    limit: 1,
   });
-
-  if (!res.ok)
-    throw new Error(`No se pudo cargar facturaclientes: HTTP ${res.status}`);
-
-  const data = await res.json().catch(() => []);
-  if (!Array.isArray(data)) return null;
-
-  return data.find((f) => Number(f.idfactura) === Number(idfactura)) || null;
+  return Array.isArray(data) && data[0] ? data[0] : null;
 }
 
 async function createReciboCliente({
@@ -3575,6 +4673,253 @@ async function createReciboCliente({
   }
 
   return await res.json().catch(() => ({}));
+}
+
+// ===== Recibos: limpieza de duplicados (evita "recibo total" + recibos por método) =====
+async function fetchRecibosByFactura(idfactura) {
+  const data = await fetchApiResourceWithParams("reciboclientes", {
+    "filter[idfactura]": idfactura,
+    limit: 200,
+    order: "desc",
+  });
+  return Array.isArray(data) ? data : [];
+}
+
+async function deleteReciboCliente(idrecibo) {
+  const cfg = window.RECIPOK_API || {};
+  if (!cfg.baseUrl || !cfg.apiKey) throw new Error("Config API no definida");
+
+  const base = cfg.baseUrl.replace(/\/+$/, "");
+  const url = `${base}/reciboclientes/${idrecibo}`;
+
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      Accept: "application/json",
+      Token: cfg.apiKey,
+    },
+  });
+
+  // Algunas instalaciones devuelven 200/204 con o sin JSON
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(
+      `Error borrando recibo ${idrecibo}: HTTP ${res.status} ${txt}`
+    );
+  }
+  return true;
+}
+
+// Deja SOLO los recibos que correspondan a los pagos del modal.
+// Elimina el recibo "total" automático y cualquier duplicado.
+async function cleanupRecibosFactura(idfactura, pagosEsperados) {
+  if (!idfactura) return;
+
+  const round2 = (n) => Number((Number(n) || 0).toFixed(2));
+
+  // Lista esperada (permitimos repetidos)
+  const expected = (Array.isArray(pagosEsperados) ? pagosEsperados : [])
+    .map((p) => ({
+      codpago: String(p.codpago || "").trim(),
+      importe: round2(p.importe),
+    }))
+    .filter((x) => x.codpago && x.importe > 0);
+
+  if (!expected.length) return;
+
+  const recibos = await fetchRecibosByFactura(idfactura);
+
+  // Vamos consumiendo "expected" para quedarnos con 1 recibo por cada pago esperado.
+  const expectedPool = expected.slice();
+
+  const matchesOneExpected = (r) => {
+    const cod = String(r.codpago || "").trim();
+    const imp = round2(r.importe);
+
+    const idx = expectedPool.findIndex(
+      (e) => e.codpago === cod && e.importe === imp
+    );
+    if (idx >= 0) {
+      expectedPool.splice(idx, 1); // consumimos este esperado
+      return true;
+    }
+    return false;
+  };
+
+  for (const r of recibos) {
+    const idrecibo = r.idrecibo || r.id || r.idrecibocliente;
+    if (!idrecibo) continue;
+
+    // Si coincide con uno de los pagos esperados, lo dejamos.
+    if (matchesOneExpected(r)) continue;
+
+    // Si NO coincide => es el "total" automático o un duplicado => lo borramos
+    try {
+      await deleteReciboCliente(idrecibo);
+    } catch (e) {
+      console.warn(
+        "No se pudo borrar recibo duplicado:",
+        idrecibo,
+        e?.message || e
+      );
+    }
+  }
+}
+
+async function fetchApiResourceWithParams(resource, params = {}) {
+  const cfg = window.RECIPOK_API;
+  if (!cfg || !cfg.baseUrl || !cfg.apiKey)
+    throw new Error("Config API no definida");
+
+  const base = cfg.baseUrl.replace(/\/+$/, "");
+  const sp = new URLSearchParams();
+
+  Object.entries(params).forEach(([k, v]) => {
+    if (v === undefined || v === null || v === "") return;
+    sp.append(k, String(v));
+  });
+
+  const url = `${base}/${resource}${sp.toString() ? "?" + sp.toString() : ""}`;
+
+  const res = await fetch(url, {
+    headers: { Accept: "application/json", Token: cfg.apiKey },
+    cache: "no-store",
+  });
+
+  if (res.status === 429)
+    throw new Error("API 429 (demasiadas peticiones). Espera unos minutos.");
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) throw new Error(`HTTP ${res.status} en ${resource}`);
+  if (data && data.status === "error")
+    throw new Error(data.message || `Error API en ${resource}`);
+
+  return data;
+}
+
+async function fetchUltimosTickets(limit = 60, days = 30) {
+  const onlyTpvId = String(currentTerminal?.id || "");
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10); // YYYY-MM-DD
+
+  // Pedimos más de lo necesario para poder filtrar bien
+  const rows = await fetchApiResourceWithParams("facturaclientes", {
+    limit: Math.max(200, limit * 4),
+    order: "desc",
+
+    // ✅ Si tu FacturaScripts soporta estos filtros, perfecto:
+    ...(onlyTpvId ? { "filter[idtpv]": onlyTpvId } : {}),
+    "filter[fecha_gte]": since,
+  });
+
+  // Mapeo a tu formato UI
+  let list = (Array.isArray(rows) ? rows : []).map(mapFacturaRowToTicketRow);
+
+  // ✅ Fallback por si el server no filtra bien:
+  if (onlyTpvId) {
+    list = list.filter((t) => {
+      const raw = t._raw || {};
+      const idtpv = raw.idtpv ?? t.idtpv ?? raw.codtpv ?? "";
+      return String(idtpv) === onlyTpvId;
+    });
+  }
+
+  list = filterLastNDays(list, days);
+  list = hideRefundedOriginals(list);
+  list = sortTicketsByFechaDesc(list);
+
+  return list.slice(0, limit);
+}
+
+function hideRefundedOriginals(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+
+  // ids de originales que ya tienen una rectificativa
+  const refundedOriginalIds = new Set(
+    list
+      .map((r) => Number(r.idfacturarect || r._raw?.idfacturarect || 0))
+      .filter((n) => n > 0)
+  );
+
+  // quitamos las originales que estén en ese set
+  return list.filter((r) => {
+    const id = Number(r.idfactura || r._raw?.idfactura || 0);
+    const isOriginalRefunded = refundedOriginalIds.has(id);
+
+    // OJO: no filtramos la rectificativa, solo la original
+    const isRectificativa =
+      Number(r.idfacturarect || r._raw?.idfacturarect || 0) > 0;
+    if (isRectificativa) return true;
+
+    return !isOriginalRefunded;
+  });
+}
+
+async function fetchLineasFactura(idfactura) {
+  // 1) Intento A: filtro tipo FS
+  try {
+    const data = await fetchApiResourceWithParams("lineafacturaclientes", {
+      "filter[idfactura]": idfactura,
+      limit: 2000,
+    });
+    if (Array.isArray(data) && data.length) return data;
+  } catch (e) {
+    // seguimos al fallback
+  }
+
+  // 2) Intento B: query simple
+  try {
+    const data = await fetchApiResourceWithParams("lineafacturaclientes", {
+      idfactura,
+      limit: 2000,
+    });
+    if (Array.isArray(data) && data.length) return data;
+  } catch (e) {
+    // seguimos al fallback
+  }
+
+  // 3) Fallback: traemos muchas y filtramos (no ideal, pero funciona)
+  const data = await fetchApiResourceWithParams("lineafacturaclientes", {
+    limit: 5000,
+  });
+  const list = Array.isArray(data) ? data : [];
+  return list.filter((l) => Number(l.idfactura) === Number(idfactura));
+}
+
+async function imprimirFacturaPorId(facturaRow) {
+  const idfactura = facturaRow.idfactura;
+  const lineas = await fetchLineasFactura(idfactura);
+
+  const mapped = lineas.map((l) => {
+    const taxRate = extractTaxRateFromCode(l.codimpuesto);
+    const unitNet = Number(l.pvpunitario || 0);
+    const unitGross = unitNet * (1 + taxRate / 100);
+
+    return {
+      name: l.descripcion || "Producto",
+      qty: Number(l.cantidad || 0),
+      price: unitNet,
+      grossPrice: unitGross,
+      codimpuesto: l.codimpuesto || null,
+      taxRate,
+    };
+  });
+
+  const ticket = {
+    numero: facturaRow.codigo || facturaRow.numero || String(idfactura),
+    fecha: facturaRow.fecha,
+    hora: facturaRow.hora,
+    paymentMethod: facturaRow.formapago || facturaRow.codpago || "—",
+    clientName: facturaRow.nombrecliente || facturaRow.cliente || "Cliente",
+    terminalName: currentTerminal ? currentTerminal.name : "",
+    agentName: currentAgent ? currentAgent.name : facturaRow.codagente || "—",
+
+    company: companyInfo ? { ...companyInfo } : null,
+    lineas: mapped,
+  };
+
+  await printTicket(ticket);
 }
 
 function askEmailWithModal() {
@@ -3635,6 +4980,280 @@ function askEmailWithModal() {
   });
 }
 
+function buildDevolucionLineUI(l) {
+  const soldQty = Number(l.cantidad || 0);
+  const taxRate = extractTaxRateFromCode(l.codimpuesto);
+  const unitNet = Number(l.pvpunitario || 0);
+  const unitGross = unitNet * (1 + taxRate / 100);
+
+  return {
+    idlinea: l.idlinea,
+    descripcion: l.descripcion || "",
+    soldQty,
+    returnQty: 0, // <-- esto lo modifica el usuario
+    unitNet,
+    unitGross,
+    codimpuesto: l.codimpuesto || null,
+    taxRate,
+  };
+}
+
+function buildTicketFromFacturaRow(facturaRow, lineasFactura) {
+  const mapped = (lineasFactura || []).map((l) => {
+    const taxRate = extractTaxRateFromCode(l.codimpuesto);
+    const unitNet = Number(l.pvpunitario || 0);
+    const unitGross = unitNet * (1 + taxRate / 100);
+
+    return {
+      name: l.descripcion || "Producto",
+      qty: Number(l.cantidad || 0),
+      price: unitNet, // neto
+      grossPrice: unitGross, // bruto
+      codimpuesto: l.codimpuesto || null,
+      taxRate,
+    };
+  });
+
+  return {
+    numero:
+      facturaRow.codigo || facturaRow.numero || String(facturaRow.idfactura),
+    fecha: facturaRow.fecha || "",
+    hora: facturaRow.hora || "",
+    paymentMethod: facturaRow.codpago || "—",
+    clientName: facturaRow.nombrecliente || "Cliente",
+    terminalName: currentTerminal
+      ? currentTerminal.name
+      : `TPV ${facturaRow.idtpv || "—"}`,
+    agentName: currentAgent ? currentAgent.name : facturaRow.codagente || "—",
+    company: companyInfo ? { ...companyInfo } : null,
+    lineas: mapped,
+    total: Number(facturaRow.total || 0),
+  };
+}
+
+async function imprimirFacturaHistorica(facturaRow) {
+  const id = facturaRow.idfactura;
+  const lineas = await fetchLineasFactura(id);
+  const ticket = buildTicketFromFacturaRow(facturaRow, lineas);
+  await printTicket(ticket);
+}
+
+function lineNetTotal(l) {
+  return Number(l.pvpunitario || 0) * Number(l.cantidad || 0);
+}
+function lineTaxRate(l) {
+  // si viene "iva": 10, úsalo; si no, saca de codimpuesto
+  const iva = Number(l.iva);
+  if (!isNaN(iva) && iva > 0) return iva;
+  return extractTaxRateFromCode(l.codimpuesto);
+}
+function lineGrossUnit(l) {
+  const net = Number(l.pvpunitario || 0);
+  const tax = lineTaxRate(l);
+  return net * (1 + tax / 100);
+}
+function lineGrossTotal(l) {
+  return lineGrossUnit(l) * Number(l.cantidad || 0);
+}
+
+let refundState = {
+  factura: null,
+  lineas: [],
+  qtyByLineId: {}, // { idlinea: qtyDevolver }
+};
+
+function eurES(n) {
+  return (Number(n) || 0).toFixed(2).replace(".", ",") + " €";
+}
+
+function renderRefundLines() {
+  const wrap = document.getElementById("refundLines");
+  if (!wrap) return;
+
+  wrap.innerHTML = "";
+
+  refundState.lineas.forEach((l) => {
+    const max = Number(l.cantidad || 0);
+    const id = Number(l.idlinea);
+    const curr = Number(refundState.qtyByLineId[id] || 0);
+
+    const unitGross = lineGrossUnit(l);
+    const tax = lineTaxRate(l);
+
+    const row = document.createElement("div");
+    row.style.cssText =
+      "display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid #eee;";
+
+    row.innerHTML = `
+      <div style="flex:1; min-width:0;">
+        <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+          ${escapeHtml(l.descripcion || "Producto")}
+        </div>
+        <div style="font-size:12px; opacity:.8;">
+          Vendido: ${max} · ${eurES(unitGross)} / ud · IVA ${tax}%
+        </div>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:6px;">
+        <button type="button" class="cart-btn" data-a="minus" data-id="${id}">-</button>
+        <div style="min-width:34px; text-align:center; font-weight:700;">${curr}</div>
+        <button type="button" class="cart-btn" data-a="plus" data-id="${id}">+</button>
+      </div>
+
+      <div style="width:110px; text-align:right; font-weight:700;">
+        ${eurES(unitGross * curr)}
+      </div>
+    `;
+
+    wrap.appendChild(row);
+  });
+
+  updateRefundAmount();
+}
+
+function updateRefundAmount() {
+  const el = document.getElementById("refundAmount");
+  if (!el) return;
+
+  let total = 0;
+  refundState.lineas.forEach((l) => {
+    const id = Number(l.idlinea);
+    const q = Number(refundState.qtyByLineId[id] || 0);
+    total += lineGrossUnit(l) * q;
+  });
+
+  el.textContent = eurES(total);
+}
+
+function bindRefundLineClicks() {
+  const wrap = document.getElementById("refundLines");
+  if (!wrap) return;
+
+  wrap.onclick = (e) => {
+    const btn = e.target.closest("button[data-a]");
+    if (!btn) return;
+
+    const id = Number(btn.dataset.id);
+    const action = btn.dataset.a;
+
+    const line = refundState.lineas.find((x) => Number(x.idlinea) === id);
+    if (!line) return;
+
+    const max = Number(line.cantidad || 0);
+    let curr = Number(refundState.qtyByLineId[id] || 0);
+
+    if (action === "plus") curr += 1;
+    if (action === "minus") curr -= 1;
+
+    if (curr < 0) curr = 0;
+    if (curr > max) curr = max;
+
+    refundState.qtyByLineId[id] = curr;
+    renderRefundLines();
+  };
+}
+
+function refundSelectAll() {
+  refundState.lineas.forEach((l) => {
+    refundState.qtyByLineId[Number(l.idlinea)] = Number(l.cantidad || 0);
+  });
+  renderRefundLines();
+}
+function refundSelectNone() {
+  refundState.qtyByLineId = {};
+  renderRefundLines();
+}
+
+async function openRefundForFactura(facturaRow) {
+  const overlay = document.getElementById("refundOverlay");
+  if (!overlay) {
+    toast("Falta #refundOverlay en el HTML.", "err", "Devolución");
+    return;
+  }
+
+  const lineas = await fetchLineasFactura(facturaRow.idfactura);
+
+  refundState.factura = facturaRow;
+  refundState.lineas = lineas;
+  refundState.qtyByLineId = {}; // empieza en 0
+
+  // Cabecera
+  const n = document.getElementById("refundTicketNum");
+  const c = document.getElementById("refundClient");
+  const t = document.getElementById("refundTicketTotal");
+  if (n) n.textContent = facturaRow.codigo || `#${facturaRow.idfactura}`;
+  if (c) c.textContent = facturaRow.nombrecliente || "Cliente";
+  if (t) t.textContent = eurES(facturaRow.total || 0);
+
+  overlay.classList.remove("hidden");
+  bindRefundLineClicks();
+  renderRefundLines();
+
+  // binds botones
+  const x = document.getElementById("refundCloseX");
+  const cancel = document.getElementById("refundCancelBtn");
+  const all = document.getElementById("refundSelectAllBtn");
+  const none = document.getElementById("refundSelectNoneBtn");
+
+  if (x) x.onclick = () => overlay.classList.add("hidden");
+  if (cancel) cancel.onclick = () => overlay.classList.add("hidden");
+  if (all) all.onclick = refundSelectAll;
+  if (none) none.onclick = refundSelectNone;
+
+  const confirmBtn = document.getElementById("refundConfirmBtn"); // asegúrate que existe en HTML
+
+  if (confirmBtn) {
+    confirmBtn.onclick = async () => {
+      try {
+        confirmBtn.disabled = true;
+
+        // 1) Crear devolución en FS
+        const resp = await createRefundInFacturaScripts(
+          facturaRow,
+          refundState.qtyByLineId,
+          refundState.lineas
+        );
+
+        toast("Devolución creada ✅", "ok", "Devolución");
+
+        // 2) Cerrar modal
+        overlay.classList.add("hidden");
+
+        // 3) Refrescar lista (para que aparezca la nueva factura rectificativa)
+        await loadAndRenderTickets();
+
+        // 4) (Opcional) imprimir automáticamente la devolución:
+        // const doc = resp.doc || resp.factura || resp.data || resp;
+        // if (doc?.idfactura) {
+        //   const row = { ...facturaRow, idfactura: doc.idfactura, codigo: doc.codigo || null, total: doc.total || 0 };
+        //   await imprimirFacturaHistorica(row);
+        // }
+      } catch (e) {
+        console.error(e);
+        toast("Error en devolución: " + (e?.message || e), "err", "Devolución");
+      } finally {
+        confirmBtn.disabled = false;
+      }
+    };
+  }
+}
+
+async function doLogoutFlow() {
+  if (!getLoginToken() && !getLoginUser()) return;
+
+  const ok = await confirmModal(
+    "Cerrar sesión",
+    "¿Estás seguro de cerrar sesión?"
+  );
+  if (!ok) return;
+
+  clearLoginSession();
+  refreshLoggedUserUI();
+  resetTPVToEmpty();
+
+  toast?.("Sesión cerrada", "info", "Usuario");
+}
+
 const changePrinterBtn = document.getElementById("changePrinterBtn");
 if (changePrinterBtn) {
   changePrinterBtn.onclick = async () => {
@@ -3666,12 +5285,13 @@ function showMessageModal(title, text) {
 }
 
 // ===== Inicialización =====
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
   renderCart();
   updateCashButtonLabel();
   updateParkedCountBadge();
+  refreshOptionsUI();
 
-  bootstrapCompany().then(loadDataFromApi);
+  await bootstrapApp();
 });
 
 // ===== Atajo de teclado para resetear TPV (Ctrl+Shift+R) =====

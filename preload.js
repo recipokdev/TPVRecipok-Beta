@@ -6,3 +6,11 @@ contextBridge.exposeInMainWorld("TPV_PRINT", {
   printTicket: ({ html, deviceName }) =>
     ipcRenderer.invoke("ticket:print", { html, deviceName }),
 });
+
+contextBridge.exposeInMainWorld("TPV_APP", {
+  getGuards: () => ipcRenderer.invoke("tpv:getGuards"),
+});
+
+contextBridge.exposeInMainWorld("TPV_UI", {
+  onGuard: (cb) => ipcRenderer.on("tpv:guard", (_e, payload) => cb(payload)),
+});

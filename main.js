@@ -1,5 +1,5 @@
 // main.js
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 
@@ -24,6 +24,60 @@ function createWindow() {
 
   mainWin.removeMenu();
 
+  // ✅ Bloquear cierre con la X si hay caja abierta o tickets aparcados
+  let allowMainClose = false;
+
+  mainWin.on("close", async (e) => {
+    if (allowMainClose) return;
+
+    e.preventDefault();
+
+    // Leemos estado desde el renderer
+    let guards = { cashOpen: false, parkedCount: 0 };
+    try {
+      guards = await mainWin.webContents.executeJavaScript(
+        "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()"
+      );
+      guards = guards || { cashOpen: false, parkedCount: 0 };
+    } catch (_) {}
+
+    async function showGuardInRenderer(title, text) {
+      try {
+        // le mandamos evento al renderer para que muestre el modal bonito
+        mainWin.webContents.send("tpv:guard", { title, text });
+
+        // pequeña espera para que el usuario lo vea (y no “parezca” que no pasa nada)
+        // no bloquea el hilo; solo esperamos aquí antes de devolver
+        await new Promise((r) => setTimeout(r, 50));
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    // 1) Caja abierta -> NO cerrar
+    if (guards.cashOpen) {
+      await showGuardInRenderer(
+        "Terminal abierta",
+        "No puedes cerrar el programa hasta que cierres la caja."
+      );
+      return;
+    }
+
+    // 2) Tickets aparcados -> NO cerrar
+    if ((guards.parkedCount || 0) > 0) {
+      await showGuardInRenderer(
+        "Tickets aparcados",
+        "No puedes cerrar el programa hasta recuperar o eliminar los tickets aparcados."
+      );
+      return;
+    }
+
+    // ✅ Si todo OK, permitir cierre
+    allowMainClose = true;
+    mainWin.close();
+  });
+
   // Logs útiles si algo falla en producción
   mainWin.webContents.on(
     "did-fail-load",
@@ -37,6 +91,10 @@ function createWindow() {
       if (!mainWin.isVisible()) mainWin.show();
     }
   );
+
+  /*  Uncomment para abrir DevTools o consola siempre
+   */
+  mainWin.webContents.openDevTools();
 
   mainWin.webContents.on("render-process-gone", (event, details) => {
     console.log("render-process-gone:", details);
@@ -312,6 +370,21 @@ async function createHiddenPrintWindow(html) {
   await win.loadURL(dataUrl);
   return win;
 }
+
+// --- IPC: obtener estado de guardias ---
+ipcMain.handle("tpv:getGuards", async (event) => {
+  try {
+    // pide al renderer el estado
+    const wc = event.sender;
+    const guards = await wc.executeJavaScript(
+      "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()"
+    );
+    return guards || { cashOpen: false, parkedCount: 0 };
+  } catch (e) {
+    // si falla, por seguridad NO bloqueamos (o si quieres, sí bloqueas)
+    return { cashOpen: false, parkedCount: 0 };
+  }
+});
 
 // --- IPC: listado de impresoras ---
 ipcMain.handle("printers:list", async () => {
