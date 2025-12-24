@@ -1,10 +1,31 @@
 // main.js
 const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const { autoUpdater } = require("electron-updater");
+const { execFile } = require("child_process");
 const path = require("path");
+const fs = require("fs");
 
 let mainWin = null;
 let splashWin = null;
+
+function queueFilePath() {
+  return path.join(app.getPath("userData"), "sync-queue.json");
+}
+
+function readQueue() {
+  try {
+    const p = queueFilePath();
+    if (!fs.existsSync(p)) return [];
+    return JSON.parse(fs.readFileSync(p, "utf8")) || [];
+  } catch {
+    return [];
+  }
+}
+
+function writeQueue(items) {
+  const p = queueFilePath();
+  fs.writeFileSync(p, JSON.stringify(items, null, 2), "utf8");
+}
 
 function createWindow() {
   const isDev = !app.isPackaged;
@@ -447,4 +468,151 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+/*Abrir Cajon*/
+ipcMain.handle("tpv:openCashDrawer", async (_event, { deviceName }) => {
+  if (!deviceName) return { ok: false, error: "Falta deviceName" };
+
+  const exePath = app.isPackaged
+    ? path.join(process.resourcesPath, "assets", "open-drawer.exe")
+    : path.join(__dirname, "assets", "open-drawer.exe");
+
+  if (!fs.existsSync(exePath)) {
+    return { ok: false, error: `No existe open-drawer.exe en: ${exePath}` };
+  }
+
+  const run = (pin) =>
+    new Promise((resolve) => {
+      execFile(
+        exePath,
+        [deviceName, String(pin)], // pin 0/1
+        { windowsHide: true },
+        (err, stdout, stderr) => {
+          if (err) {
+            resolve({
+              ok: false,
+              pin,
+              error: (stderr || err.message || String(err)).trim(),
+            });
+          } else {
+            resolve({ ok: true, pin, out: (stdout || "").trim() });
+          }
+        }
+      );
+    });
+
+  // Intento pin 0 y si falla, pin 1
+  let r = await run(0);
+  if (!r.ok) r = await run(1);
+  return r;
+});
+
+/* Cola de sincronización */
+ipcMain.handle("queue:enqueue", async (_e, item) => {
+  const q = readQueue();
+  q.push({
+    id: crypto.randomUUID?.() || String(Date.now()) + "_" + Math.random(),
+    createdAt: new Date().toISOString(),
+    attempts: 0,
+    status: "pending",
+    ...item,
+  });
+  writeQueue(q);
+  return { ok: true, pending: q.filter((x) => x.status === "pending").length };
+});
+
+/* ver contador de items en cola */
+ipcMain.handle("queue:count", async () => {
+  const q = readQueue();
+  const pending = q.filter((x) => x.status === "pending").length;
+  const error = q.filter((x) => x.status === "error").length;
+  return { pending, error, total: q.length };
+});
+
+/* listar items de cola (sin consumir) */
+ipcMain.handle("queue:list", async () => {
+  const q = readQueue();
+
+  const pending = q
+    .filter((x) => x.status === "pending" || x.status === "processing")
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+  const done = q
+    .filter((x) => x.status === "done")
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+  const error = q
+    .filter((x) => x.status === "error")
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+  return { pending, done, error, total: q.length };
+});
+
+/* obtener siguiente item pendiente y marcar resuelto*/
+ipcMain.handle("queue:next", async () => {
+  const q = readQueue();
+  const now = Date.now();
+
+  // 1) Si quedó algo en processing (crash / cierre), lo devolvemos a pending
+  for (const it of q) {
+    if (it.status === "processing") {
+      it.status = "pending";
+    }
+  }
+
+  // 2) Elegir el primer "pending" cuyo nextRetryAt ya haya pasado (o no exista)
+  const idx = q.findIndex((x) => {
+    if (x.status !== "pending") return false;
+    if (!x.nextRetryAt) return true;
+    return new Date(x.nextRetryAt).getTime() <= now;
+  });
+
+  if (idx === -1) {
+    writeQueue(q);
+    return { ok: true, item: null };
+  }
+
+  q[idx].status = "processing";
+  q[idx].attempts = (q[idx].attempts || 0) + 1;
+  q[idx].lastAttemptAt = new Date().toISOString();
+  writeQueue(q);
+
+  return { ok: true, item: q[idx] };
+});
+
+ipcMain.handle("queue:done", async (_e, { id, remote }) => {
+  const q = readQueue();
+  const idx = q.findIndex((x) => x.id === id);
+  if (idx === -1) return { ok: false, error: "No existe item" };
+  q[idx].status = "done";
+  q[idx].remote = remote || null;
+  writeQueue(q);
+  return { ok: true };
+});
+
+ipcMain.handle("queue:error", async (_e, { id, error }) => {
+  const q = readQueue();
+  const idx = q.findIndex((x) => x.id === id);
+  if (idx === -1) return { ok: false, error: "No existe item" };
+
+  // reintentos: 1, 2, 5, 10 min
+  const att = q[idx].attempts || 1;
+  const delayMin = att <= 1 ? 1 : att === 2 ? 2 : att === 3 ? 5 : 10;
+
+  q[idx].status = "pending"; // vuelve a pending para reintentar
+  q[idx].lastError = String(error || "Error");
+  q[idx].nextRetryAt = new Date(Date.now() + delayMin * 60000).toISOString();
+
+  writeQueue(q);
+  return { ok: true, nextRetryAt: q[idx].nextRetryAt };
 });

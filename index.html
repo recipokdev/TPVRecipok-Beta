@@ -29,7 +29,19 @@
 
       <!-- Productos -->
       <div class="products-grid" id="productsGrid"></div>
-      <div id="statusBar" class="status-bar"><strong>—</strong></div>
+      <div id="statusBar" style="display: flex; align-items: center; gap: 6px">
+        <span
+          id="statusDot"
+          style="
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #22c55e; /* verde por defecto */
+            display: inline-block;
+          "
+        ></span>
+        <strong>Online Recipok</strong>
+      </div>
     </div>
 
     <!-- PANEL DERECHO: CARRITO -->
@@ -95,26 +107,30 @@
       </div>
 
       <!-- BOTONERA INFERIOR (nuevo layout) -->
-<div class="cart-action-grid">
-  <!-- Izquierda -->
-  <button id="clearCartBtn" class="cart-btn cart-btn-delete">Vaciar</button>
-  <button id="ticketsListBtn" class="cart-btn cart-btn-tickets">Tickets</button>
+      <div class="cart-action-grid">
+        <!-- Izquierda -->
+        <button id="clearCartBtn" class="cart-btn cart-btn-delete">
+          Vaciar
+        </button>
+        <button id="ticketsListBtn" class="cart-btn cart-btn-tickets">
+          Tickets
+        </button>
 
-  <!-- Centro (el “hueco” donde antes estaba imprimir) -->
-  <button id="parkBtn" class="cart-btn cart-btn-park">Aparcar</button>
-  <button id="parkedListBtn" class="cart-btn cart-btn-parked">
-    Aparcados <span id="parkedCountBadge" class="cart-badge">0</span>
-  </button>
+        <!-- Centro (el “hueco” donde antes estaba imprimir) -->
+        <button id="parkBtn" class="cart-btn cart-btn-park">Aparcar</button>
+        <button id="parkedListBtn" class="cart-btn cart-btn-parked">
+          Aparcados <span id="parkedCountBadge" class="cart-badge">0</span>
+        </button>
 
-  <!-- Derecha: Cobrar ocupa 2 filas -->
-  <button id="payBtn" class="cart-btn cart-btn-pay cart-btn-pay-tall">
-    Cobrar
-  </button>
-</div>
+        <!-- Derecha: Cobrar ocupa 2 filas -->
+        <button id="payBtn" class="cart-btn cart-btn-pay cart-btn-pay-tall">
+          Cobrar
+        </button>
+      </div>
+    </aside>
 
-<!-- Puedes dejar esto tal cual si lo usas en Opciones -->
-<button id="changePrinterBtn" class="cart-btn hidden">Impresora</button>
-
+    <!-- Puedes dejar esto tal cual si lo usas en Opciones -->
+    <button id="changePrinterBtn" class="cart-btn hidden">Impresora</button>
 
     <!-- Teclado numérico -->
     <div id="numPadOverlay" class="num-pad-overlay hidden">
@@ -123,26 +139,38 @@
           Cantidad <span id="numPadProductName"></span>
         </div>
         <div id="numPadDisplay" class="num-pad-display">0</div>
-        <div class="num-pad-grid">
+        <div class="num-pad-grid calc-grid">
           <button class="num-pad-btn" data-key="7">7</button>
           <button class="num-pad-btn" data-key="8">8</button>
           <button class="num-pad-btn" data-key="9">9</button>
+          <button class="num-pad-btn op" data-key="/">÷</button>
 
           <button class="num-pad-btn" data-key="4">4</button>
           <button class="num-pad-btn" data-key="5">5</button>
           <button class="num-pad-btn" data-key="6">6</button>
+          <button class="num-pad-btn op" data-key="*">×</button>
 
           <button class="num-pad-btn" data-key="1">1</button>
           <button class="num-pad-btn" data-key="2">2</button>
           <button class="num-pad-btn" data-key="3">3</button>
+          <button class="num-pad-btn op" data-key="-">−</button>
 
           <button class="num-pad-btn" data-key="0">0</button>
-          <button class="num-pad-btn" data-key="back">←</button>
-          <div></div>
+          <button class="num-pad-btn" data-key=".">.</button>
+          <button class="num-pad-btn" data-key="back">⌫</button>
+          <button class="num-pad-btn op" data-key="+">+</button>
         </div>
+
         <div class="num-pad-actions">
           <button class="num-pad-clear" data-key="clear">Borrar</button>
           <button class="num-pad-cancel" data-key="cancel">Cancelar</button>
+          <button
+            class="num-pad-clear"
+            data-key="resetPrice"
+            style="display: none"
+          >
+            Restaurar
+          </button>
           <button class="num-pad-ok" data-key="ok">OK</button>
         </div>
       </div>
@@ -165,7 +193,7 @@
             <button class="q-key" data-key=".com">.com</button>
             <button class="q-key" data-key="gmail.com">gmail.com</button>
           </div>
-          <div class="q-row">            
+          <div class="q-row">
             <button class="q-key" data-key="1">1</button>
             <button class="q-key" data-key="2">2</button>
             <button class="q-key" data-key="3">3</button>
@@ -214,9 +242,9 @@
         </div>
 
         <div class="qwerty-actions">
-          <button class="q-btn" data-key="space">Espacio</button>
-          <button class="q-btn q-clear" data-key="clear">Borrar todo</button>
           <button class="q-btn q-back" data-key="back">←</button>
+          <button class="q-btn q-clear" data-key="clear">Borrar todo</button>
+          <button class="q-btn" data-key="space">Espacio</button>
           <button class="q-btn q-cancel" data-key="cancel">Cancelar</button>
           <button class="q-btn q-ok" data-key="ok">OK</button>
         </div>
@@ -294,162 +322,259 @@
       </div>
     </div>
 
-    <!-- Overlay: Aparcar con observaciones -->
-<div id="parkObsOverlay" class="simple-overlay hidden">
-  <div class="simple-dialog" style="width: 520px; max-width: 94vw">
-    <h2 style="margin-top:0">Aparcar ticket</h2>
-
-    <label style="font-size:13px; font-weight:600; display:block; margin:8px 0 6px">
-      Observaciones (opcional)
-    </label>
-
-    <input
-      id="parkObsInput"
-      type="text"
-      placeholder="Ej: Mesa 3, para llevar, sin gluten..."
-      style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid #ccc; font-size:16px;"
-      autocomplete="off"
-    />
-
-    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
-      <button id="parkObsKeyboardBtn" type="button" class="cart-btn">⌨ Teclado</button>
-    </div>
-
-    <div class="dialog-actions">
-      <button id="parkObsCancelBtn">Cancelar</button>
-      <button id="parkObsOkBtn">Aparcar</button>
-    </div>
-  </div>
-</div>
-
-
-    <!-- Overlay apertura de caja -->
+    <!-- Overlay apertura / cierre de caja (ESTILO “PRIMERA IMAGEN”) -->
     <div id="cashOpenOverlay" class="simple-overlay hidden">
-      <div class="cash-dialog">
-        <h2>Apertura de caja</h2>
-        <p class="cash-subtitle">
-          Terminal: <span id="cashOpenTerminalName"></span>
-        </p>
+      <div class="cash-page-dialog">
+        <div class="cash-page-header">
+          <h2 id="cashDialogTitle">Apertura de caja</h2>
+          <p class="cash-subtitle">
+            Terminal: <strong><span id="cashOpenTerminalName"></span></strong>
+          </p>
+        </div>
 
-        <div class="cash-grid">
-          <!-- Cada celda: etiqueta + input cantidad de billetes/monedas -->
+        <!-- GRID billetes/monedas -->
+        <div class="cash-grid-page">
           <!-- fila 1 -->
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>0,01 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="0.01" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="0.01"
+            />
           </div>
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>0,02 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="0.02" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="0.02"
+            />
           </div>
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>0,05 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="0.05" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="0.05"
+            />
           </div>
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>0,10 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="0.10" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="0.10"
+            />
           </div>
 
           <!-- fila 2 -->
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>0,20 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="0.20" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="0.20"
+            />
           </div>
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>0,50 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="0.50" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="0.50"
+            />
           </div>
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>1 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="1" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="1"
+            />
           </div>
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>2 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="2" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="2"
+            />
           </div>
 
           <!-- fila 3 -->
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>5 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="5" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="5"
+            />
           </div>
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>10 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="10" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="10"
+            />
           </div>
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>20 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="20" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="20"
+            />
           </div>
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>50 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="50" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="50"
+            />
           </div>
 
           <!-- fila 4 -->
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>100 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="100" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="100"
+            />
           </div>
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>200 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="200" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="200"
+            />
           </div>
-          <div class="cash-cell">
+          <div class="cash-cell-page">
             <label>500 €</label>
-            <input type="number" min="0" step="1" value="0" data-denom="500" />
+            <input
+              class="cash-hidden-input"
+              type="number"
+              min="0"
+              step="1"
+              value="0"
+              data-denom="500"
+            />
+          </div>
+
+          <!-- celda vacía para cuadrar el grid en 4 columnas -->
+          <div class="cash-cell-page cash-cell-empty"></div>
+        </div>
+
+        <!-- Observaciones -->
+        <div class="cash-obs">
+          <label for="cashObs">Observaciones</label>
+          <textarea id="cashObs" rows="3" placeholder=""></textarea>
+        </div>
+
+        <!-- Resumen principal (igual que tu JS espera) -->
+        <div class="cash-summary-page">
+          <div class="cash-summary-item">
+            <div class="cash-summary-label">Dinero inicial</div>
+            <div class="cash-summary-value" id="sumOpening">0,00 €</div>
+          </div>
+
+          <div class="cash-summary-item">
+            <div class="cash-summary-label">Ingresos en efectivo</div>
+            <div class="cash-summary-value" id="sumCashIncome">0,00 €</div>
+          </div>
+
+          <div class="cash-summary-item">
+            <div class="cash-summary-label">Total movimientos</div>
+            <div class="cash-summary-value" id="sumMovements">0,00 €</div>
+          </div>
+
+          <div class="cash-summary-item">
+            <div class="cash-summary-label">Total en caja</div>
+            <div class="cash-summary-value" id="sumExpectedCash">0,00 €</div>
+          </div>
+
+          <div class="cash-summary-item">
+            <div class="cash-summary-label">Conteo de caja</div>
+            <div class="cash-summary-value" id="sumCountedCash">0,00 €</div>
+          </div>
+
+          <div class="cash-summary-item">
+            <div class="cash-summary-label">Total ventas</div>
+            <div class="cash-summary-value" id="sumTotalSales">0,00 €</div>
           </div>
         </div>
 
-        <!-- Resumen principal (arriba del todo) -->
-        <div class="cash-summary">
+        <!-- Total grande (tu JS usa cashOpenTotalEl) -->
+        <div class="cash-total-big">
           <span id="cashSummaryMainLabel">Dinero inicial:</span>
           <strong id="cashOpenTotal">0,00 €</strong>
         </div>
 
-        <!-- Resumen extendido para cierre -->
-        <div
-          id="cashCloseSummary"
-          style="
-            display: none;
-            margin-top: 10px;
-            font-size: 13px;
-            border-top: 1px solid #ddd;
-            padding-top: 8px;
-          "
-        >
-          <div
-            style="
-              display: flex;
-              flex-wrap: wrap;
-              gap: 16px;
-              justify-content: space-between;
-            "
-          >
-            <div>Dinero inicial: <strong id="sumOpening">0,00 €</strong></div>
-            <div>
-              Ingresos en efectivo: <strong id="sumCashIncome">0,00 €</strong>
-            </div>
-            <div>
-              Total movimientos: <strong id="sumMovements">0,00 €</strong>
-            </div>
-            <div>
-              Total en caja: <strong id="sumExpectedCash">0,00 €</strong>
-            </div>
-            <div>
-              Conteo de caja: <strong id="sumCountedCash">0,00 €</strong>
-            </div>
-            <div>Total ventas: <strong id="sumTotalSales">0,00 €</strong></div>
-          </div>
-        </div>
+        <!-- (IMPORTANTE) mantenemos este contenedor porque tu JS lo muestra/oculta en cierre.
+         Lo dejamos “invisible” porque ya mostramos el resumen en la barra inferior,
+         pero el JS lo seguirá encontrando. -->
+        <div id="cashCloseSummary" style="display: none"></div>
 
-        <div class="dialog-actions">
-          <button id="cashOpenCancelBtn">Cancelar</button>
-          <button id="cashOpenOkBtn">Abrir caja</button>
+        <!-- Acciones -->
+        <div class="cash-actions-page">
+          <button id="cashOpenCancelBtn" type="button" class="btn-cash-cancel">
+            Cancelar
+          </button>
+          <button id="cashOpenOkBtn" type="button" class="btn-cash-ok">
+            Guardar
+          </button>
         </div>
       </div>
     </div>
+
+    <!-- Overlay apertura de caja -->
+
     <div id="emailOverlay" class="email-overlay hidden">
       <div class="email-modal">
         <h2>Activar TPV</h2>
@@ -474,7 +599,7 @@
         <div id="emailError" class="email-error"></div>
       </div>
     </div>
-    <div id="msgOverlay" class="simple-overlay hidden">
+    <div id="msgOverlay" class="simple-overlay critical-overlay hidden">
       <div class="simple-dialog">
         <h2 id="msgTitle">Aviso</h2>
         <p id="msgText" style="margin: 10px 0; font-size: 14px"></p>
@@ -570,9 +695,9 @@
 
             <div class="pay-footer-left">
               <button
+                type="button"
                 id="payOpenDrawerBtn"
                 class="pay-btn pay-btn-blue"
-                type="button"
               >
                 🧾 Abrir cajón
               </button>
@@ -631,25 +756,28 @@
 
         <div class="parked-modal-body">
           <div class="tickets-tools">
-  <input
-    id="ticketsSearch"
-    type="text"
-    placeholder="Buscar (nº, cliente, total...)"
-    autocomplete="off"
-  />
+            <input
+              id="ticketsSearch"
+              type="text"
+              placeholder="Buscar (nº, cliente, total...)"
+              autocomplete="off"
+            />
 
-  <button id="ticketsKeyboardBtn" type="button" class="cart-btn" title="Teclado">
-    ⌨
-  </button>
+            <button
+              id="ticketsKeyboardBtn"
+              type="button"
+              class="cart-btn"
+              title="Teclado"
+            >
+              ⌨
+            </button>
 
-  <button id="ticketsReloadBtn" type="button" class="cart-btn">
-    Recargar
-  </button>
-</div>
+            <button id="ticketsReloadBtn" type="button" class="cart-btn">
+              Recargar
+            </button>
+          </div>
 
-<div id="ticketsList"></div>
-
-
+          <div id="ticketsList"></div>
         </div>
       </div>
     </div>
@@ -809,6 +937,42 @@
           </div>
         </div>
 
+        <div
+          style="
+            margin-top: 16px;
+            border-top: 1px solid #eee;
+            padding-top: 12px;
+          "
+        >
+          <div style="font-weight: 700; margin-bottom: 6px">Caja</div>
+
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 10px;
+              flex-wrap: wrap;
+            "
+          >
+            <div style="font-size: 13px; opacity: 0.85">
+              Abrir el cajón manualmente
+            </div>
+
+            <button
+              type="button"
+              id="optionsOpenDrawerBtn"
+              class="pay-btn pay-btn-blue"
+            >
+              🧾 Abrir cajón
+            </button>
+          </div>
+
+          <div style="font-size: 12px; opacity: 0.7; margin-top: 6px">
+            Se usa la impresora seleccionada para enviar la señal al cajón.
+          </div>
+        </div>
+
         <div class="dialog-actions" style="margin-top: 16px">
           <button id="optionsCloseBtn">Cerrar</button>
         </div>
@@ -891,6 +1055,56 @@
         <div class="dialog-actions">
           <button id="loginExitBtn">Salir</button>
           <button id="loginOkBtn">Entrar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overlay: Aparcar con observaciones -->
+    <div id="parkObsOverlay" class="simple-overlay hidden">
+      <div class="simple-dialog" style="width: 520px; max-width: 94vw">
+        <h2 style="margin-top: 0">Aparcar ticket</h2>
+
+        <label
+          style="
+            font-size: 13px;
+            font-weight: 600;
+            display: block;
+            margin: 8px 0 6px;
+          "
+        >
+          Observaciones (opcional)
+        </label>
+
+        <input
+          id="parkObsInput"
+          type="text"
+          placeholder="Ej: Mesa 3, para llevar, sin gluten..."
+          style="
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            font-size: 16px;
+          "
+          autocomplete="off"
+        />
+
+        <div
+          style="
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            margin-top: 10px;
+          "
+        >
+          <button id="parkObsKeyboardBtn" type="button" class="cart-btn">
+            ⌨ Teclado
+          </button>
+        </div>
+
+        <div class="dialog-actions">
+          <button id="parkObsCancelBtn">Cancelar</button>
+          <button id="parkObsOkBtn">Aparcar</button>
         </div>
       </div>
     </div>
