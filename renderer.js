@@ -49,6 +49,8 @@ let lastTicket = null; // guardará el último ticket/factura creada para poder 
 
 let parkedTickets = []; // cada item: { id, createdAt, items, total }
 let parkedCounter = 0;
+// Índice del ticket aparcado actualmente cargado en el carrito
+let currentParkedTicketIndex = null;
 
 // ===== TPVs, agentes y caja =====
 let terminals = [];
@@ -1499,7 +1501,7 @@ function getCartTotal(items) {
   }, 0);
 }
 
-function parkCurrentCart(obs = "") {
+async function parkCurrentCart(obs = "") {
   if (!cart || cart.length === 0) {
     toast("No hay productos para aparcar.", "warn", "Aparcar");
     return;
@@ -1510,27 +1512,48 @@ function parkCurrentCart(obs = "") {
   const snapshot = cart.map((item) => ({ ...item }));
   const total = getCartTotal(snapshot);
 
-  // Nombre del cliente (o texto del input)
   const clientName = cartClientInput
     ? cartClientInput.value || "Cliente"
     : "Cliente";
 
   const observation = String(obs || "").trim();
 
-  parkedTickets.push({
+  const localTicket = {
     id: parkedCounter,
     createdAt: new Date(),
     items: snapshot,
     total,
     clientName,
-    obs: observation, // ✅ NUEVO
-  });
+    obs: observation,
+    fs: null,
+  };
+
+  // 👉 Aquí llamamos al endpoint de presupuestos
+  const remote = await apiCreatePresupuestoFromCart(observation);
+  if (remote && (remote.doc || remote.data)) {
+    const doc = remote.doc || remote.data;
+    localTicket.fs = {
+      idpresupuesto: doc.idpresupuesto ?? doc.id ?? null,
+      codigo: doc.codigo ?? null,
+    };
+  }
+
+  parkedTickets.push(localTicket);
 
   cart = [];
   renderCart();
   updateParkedCountBadge();
 
   setStatusText("Ticket aparcado.");
+}
+
+function apiDeletePresupuesto(idpresupuesto) {
+  if (!idpresupuesto || TPV_STATE.offline || TPV_STATE.locked) return;
+
+  // usamos apiWrite con DELETE
+  apiWrite(`presupuestoclientes/${idpresupuesto}`, "DELETE", {}).catch((e) => {
+    console.warn("No se pudo borrar presupuesto en FS:", e);
+  });
 }
 
 // ===== Modal de tickets aparcados =====
@@ -1652,6 +1675,16 @@ function renderParkedTicketsModal() {
         if (!ok) return;
 
         parkedTickets.splice(index, 1);
+        // Si borro el ticket que estaba cargado, lo “desvinculo”
+        if (currentParkedTicketIndex === index) {
+          currentParkedTicketIndex = null;
+        } else if (
+          currentParkedTicketIndex !== null &&
+          currentParkedTicketIndex > index
+        ) {
+          // Reajustar índice si se borra uno anterior
+          currentParkedTicketIndex -= 1;
+        }
         updateParkedCountBadge();
 
         // Si ya no quedan, cerramos modal
@@ -1673,6 +1706,36 @@ function renderParkedTicketsModal() {
 
     parkedTicketsList.appendChild(div);
   });
+}
+
+function clearPaidParkedTicket() {
+  if (
+    currentParkedTicketIndex === null ||
+    !Array.isArray(parkedTickets) ||
+    parkedTickets.length === 0
+  ) {
+    return;
+  }
+
+  const idx = currentParkedTicketIndex;
+  if (idx < 0 || idx >= parkedTickets.length) {
+    currentParkedTicketIndex = null;
+    return;
+  }
+
+  const ticket = parkedTickets[idx];
+  const fsInfo = ticket.fs || {};
+  const idpresupuesto = fsInfo.idpresupuesto || null;
+
+  // Quitamos de la lista local
+  parkedTickets.splice(idx, 1);
+  currentParkedTicketIndex = null;
+  updateParkedCountBadge();
+
+  // Y, si existe en FacturaScripts, lo borramos allí
+  if (idpresupuesto) {
+    apiDeletePresupuesto(idpresupuesto);
+  }
 }
 
 // Cerrar modal al pulsar la X
@@ -1705,12 +1768,18 @@ function restoreParkedCartByIndex(index) {
 
   const ticket = parkedTickets[index];
 
+  // Clonamos líneas al carrito
   cart = (ticket.items || []).map((i) => ({ ...i }));
   renderCart();
 
-  parkedTickets.splice(index, 1);
-  updateParkedCountBadge();
-  setStatusText("Ticket aparcado recuperado.");
+  // Guardamos qué ticket aparcado está cargado
+  currentParkedTicketIndex = index;
+
+  // 👇 IMPORTANTE: no tocamos parkedTickets ni el contador
+  // parkedTickets.splice(index, 1);
+  // updateParkedCountBadge();
+
+  setStatusText("Ticket aparcado cargado en el carrito.");
 }
 
 // Para compatibilidad, si en algún sitio se llamara a restoreParkedCart()
@@ -2597,6 +2666,72 @@ async function apiWrite(resource, method = "POST", fields = {}) {
   return data;
 }
 
+async function apiCreatePresupuestoFromCart(obs = "") {
+  if (TPV_STATE.offline || TPV_STATE.locked) return null;
+
+  const cfg = window.RECIPOK_API || {};
+  if (!cfg.baseUrl || !cfg.apiKey) {
+    console.warn("Sin config de API para crear presupuesto.");
+    return null;
+  }
+
+  const payload = buildPresupuestoPayloadFromCart(obs);
+
+  const base = cfg.baseUrl.replace(/\/+$/, "");
+  const url = `${base}/crearPresupuestoCliente`;
+
+  const body = new URLSearchParams();
+
+  body.append("codcliente", payload.codcliente);
+
+  if (payload.codalmacen) body.append("codalmacen", payload.codalmacen);
+  if (payload.codpago) body.append("codpago", payload.codpago);
+  if (payload.codserie) body.append("codserie", payload.codserie);
+  if (payload.fecha) body.append("fecha", payload.fecha);
+  if (payload.observaciones)
+    body.append("observaciones", payload.observaciones);
+
+  body.append("aparcado", payload.aparcado ? "1" : "0");
+
+  if (payload.idtpv) body.append("idtpv", String(payload.idtpv));
+  if (payload.idcaja) body.append("idcaja", String(payload.idcaja));
+
+  // Igual que en crearFacturaCliente: líneas como JSON
+  body.append("lineas", JSON.stringify(payload.lineas));
+
+  // 🔍 Log de depuración parecido al de la factura
+  console.log(">>> Enviando a crearPresupuestoCliente:", body.toString());
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Token: cfg.apiKey,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: body.toString(),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || (data && data.status === "error")) {
+      throw new Error(data?.message || "Error creando presupuesto");
+    }
+
+    console.log("Respuesta OK crearPresupuestoCliente:", data);
+    return data;
+  } catch (e) {
+    console.warn("No se pudo crear presupuesto en FacturaScripts:", e);
+    toast(
+      "Ticket aparcado solo en local (no se registró en FacturaScripts).",
+      "warn",
+      "Aparcar"
+    );
+    return null;
+  }
+}
+
 // 2) Fecha/hora estilo FacturaScripts: "YYYY-MM-DD HH:mm:ss"
 function nowFs() {
   const d = new Date();
@@ -3349,6 +3484,59 @@ function buildTicketPayloadFromCart() {
   // Cuando todo vaya fino, los añadimos uno a uno.
 
   return payload;
+}
+
+function buildPresupuestoPayloadFromCart(obs = "") {
+  if (!cart || cart.length === 0) {
+    throw new Error("El carrito está vacío.");
+  }
+
+  const cfg = window.RECIPOK_API || {};
+
+  const codcliente = cfg.defaultCodClienteTPV || "1";
+  const codalmacen = currentTerminal?.codalmacen || getLoginWarehouse() || "";
+  const codpago = "CONT"; // ajusta si usas otro
+  const codserie = "S"; // serie de presupuestos (ajústala si es otra)
+
+  // FacturaScripts normalmente acepta YYYY-MM-DD
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const fecha = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+    d.getDate()
+  )}`;
+
+  const lineas = cart.map((item) => {
+    const descripcion = item.secondaryName
+      ? `${item.name} - ${item.secondaryName}`
+      : item.name;
+
+    const qty = item.qty || 1;
+    const unitGross = getUnitGross(item);
+    const unitNet = grossToNet(unitGross, item.taxRate);
+
+    const linea = {
+      descripcion,
+      cantidad: qty,
+      pvpunitario: unitNet,
+    };
+
+    if (item.codimpuesto) linea.codimpuesto = item.codimpuesto;
+
+    return linea;
+  });
+
+  return {
+    codcliente,
+    codalmacen,
+    codpago,
+    codserie,
+    fecha,
+    observaciones: String(obs || "").trim(),
+    aparcado: true,
+    idtpv: currentTerminal ? currentTerminal.id : null,
+    idcaja: cashSession?.remoteCajaId ?? null,
+    lineas,
+  };
 }
 
 async function updateFacturaCliente(idfactura, fields) {
@@ -4324,7 +4512,7 @@ async function onPayButtonClick() {
     // 6) Vaciar carrito
     cart = [];
     renderCart();
-
+    clearPaidParkedTicket();
     setStatusText("Venta cobrada");
 
     toast(
