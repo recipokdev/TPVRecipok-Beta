@@ -382,31 +382,33 @@ function renderProducts() {
   }
 
   filtered.forEach((p) => {
-    const cat = categories.find((c) => c.id === p.category);
     const tile = document.createElement("div");
-    tile.className = "product-tile";
-    tile.style.background = cat ? cat.color : "#555";
+
+    // clase según si tiene imagen o no
+    tile.className = "product-tile" + (p.imageUrl ? "" : " no-img");
 
     // Precio mostrado al público = precio neto * (1 + IVA)
     const taxRate = getTaxRateForProduct(p);
     const priceGross = (p.price || 0) * (1 + taxRate / 100);
 
     tile.innerHTML = `
-      <div class="product-img-wrapper">
-        ${
-          p.imageUrl
-            ? `<img src="${p.imageUrl}" alt="${p.name}" class="product-img">`
-            : ""
-        }
-      </div>
+    <div class="product-img-wrapper">
+      ${p.imageUrl ? `<img src="${p.imageUrl}" class="product-img">` : ""}
+    </div>
+
+    <div class="product-overlay-top">
       <div class="product-name">${p.name}</div>
       ${
         p.secondaryName
           ? `<div class="product-secondary">${p.secondaryName}</div>`
           : ""
       }
+    </div>
+
+    <div class="product-footer">
       <div class="product-price">${priceGross.toFixed(2)} €</div>
-    `;
+    </div>
+  `;
 
     tile.onclick = () => addToCart(p);
     grid.appendChild(tile);
@@ -2811,17 +2813,31 @@ async function loadDataFromApi() {
       tpvTerminales,
       variantesData,
       empresasData,
+      productImagesMap,
     ] = await Promise.all([
       fetchApiResource("familias"),
       fetchApiResource("productos"),
       fetchApiResource("tpvterminales"),
       fetchApiResource("variantes"),
       fetchApiResource("empresas"),
+      // mapa de imágenes (si falla, devolvemos objeto vacío para no romper nada)
+      buildProductImagesMap().catch((e) => {
+        console.warn(
+          "No se pudieron cargar imágenes de productos:",
+          e.message || e
+        );
+        return {};
+      }),
     ]);
 
     companyInfo =
       Array.isArray(empresasData) && empresasData[0] ? empresasData[0] : null;
     await loadCompanyLogoUrl();
+
+    // Mapa de imágenes devuelto (aunque buildProductImagesMap ya lo asigna)
+    if (productImagesMap && typeof productImagesMap === "object") {
+      PRODUCT_IMAGES_MAP = productImagesMap;
+    }
 
     // 2) INTENTAMOS cargar impuestos en una llamada aparte.
     //    Si falla (429, etc.), seguimos funcionando con el fallback de extractTaxRateFromCode.
@@ -2935,6 +2951,9 @@ async function loadDataFromApi() {
         const baseSort = Number(base.tpv_sort ?? base.tpvsort ?? 0) || 0;
         const baseSortKey = baseSort * 1000;
 
+        // 👇 imagen del producto base
+        const imgInfoBase = PRODUCT_IMAGES_MAP[baseId] || null;
+
         const sortedVariants = list.slice().sort((a, b) => a.idx - b.idx);
 
         sortedVariants.forEach(({ v, idx }, pos) => {
@@ -2963,6 +2982,8 @@ async function loadDataFromApi() {
             isPrimaryVariant: pos === 0,
             codimpuesto: codImpuestoBase,
             taxRate: taxRateBase,
+            // 👇 misma imagen que el producto base
+            imageUrl: imgInfoBase ? imgInfoBase.url : null,
           });
         });
       });
@@ -2987,6 +3008,9 @@ async function loadDataFromApi() {
 
         const baseSort = Number(p.tpv_sort ?? p.tpvsort ?? 0) || 0;
 
+        // 👇 imagen directa del producto (si tiene)
+        const imgInfo = PRODUCT_IMAGES_MAP[idProd] || null;
+
         combined.push({
           id: idProd,
           name,
@@ -3000,6 +3024,7 @@ async function loadDataFromApi() {
           isPrimaryVariant: true,
           codimpuesto,
           taxRate,
+          imageUrl: imgInfo ? imgInfo.url : null,
         });
       });
 
@@ -5565,6 +5590,92 @@ async function fetchApiResourceWithParams(resource, params = {}) {
     throw new Error(data.message || `Error API en ${resource}`);
 
   return data;
+}
+
+// =============================================================
+// IMÁGENES DE PRODUCTOS (attachedfiles + attachedfilerelations)
+// =============================================================
+
+// Mapa global: { [idproducto]: { idfile, url, filename, mimetype } }
+let PRODUCT_IMAGES_MAP = {};
+
+// Devuelve solo los files que sean imagen
+async function fetchAttachedImageFiles() {
+  const data = await fetchApiResourceWithParams("attachedfiles", {
+    limit: 5000,
+    order: "desc",
+  });
+
+  const list = Array.isArray(data) ? data : [];
+
+  return list.filter((f) => {
+    const mime = String(f.mimetype || "").toLowerCase();
+    const name = String(f.filename || "");
+    return mime.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/i.test(name);
+  });
+}
+
+// Devuelve solo relaciones de tipo Producto
+async function fetchProductFileRelations() {
+  const data = await fetchApiResourceWithParams("attachedfilerelations", {
+    "filter[model]": "Producto",
+    limit: 5000,
+    order: "desc",
+  });
+
+  const list = Array.isArray(data) ? data : [];
+  return list.filter(
+    (r) =>
+      String(r.model || "") === "Producto" &&
+      r.idfile != null &&
+      r.modelid != null
+  );
+}
+
+// Construye el mapa idproducto -> { url, idfile, ... }
+async function buildProductImagesMap() {
+  const [files, relations] = await Promise.all([
+    fetchAttachedImageFiles(),
+    fetchProductFileRelations(),
+  ]);
+
+  const fileById = {};
+  files.forEach((f) => {
+    fileById[Number(f.idfile)] = f;
+  });
+
+  const cfg = window.RECIPOK_API || {};
+  const apiBase = (cfg.baseUrl || "").replace(/\/+$/, "");
+  const fileBase = apiBase.replace(/\/api\/3$/i, "");
+
+  const map = {};
+
+  relations.forEach((rel) => {
+    const idprod = Number(rel.modelid);
+    const idfile = Number(rel.idfile);
+    if (!idprod || !idfile) return;
+
+    if (map[idprod]) return; // nos quedamos con la primera
+
+    const f = fileById[idfile];
+    if (!f) return;
+
+    const path = f["download-permanent"] || f.download || f.path || "";
+
+    if (!path) return;
+
+    const url = `${fileBase}/${path.replace(/^\/+/, "")}`;
+
+    map[idprod] = {
+      idfile,
+      url,
+      filename: f.filename || "",
+      mimetype: f.mimetype || "",
+    };
+  });
+
+  PRODUCT_IMAGES_MAP = map;
+  return map;
 }
 
 async function fetchUltimosTickets(limit = 60, days = 30) {
