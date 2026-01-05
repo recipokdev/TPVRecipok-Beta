@@ -552,14 +552,13 @@
 
         <!-- Total grande (tu JS usa cashOpenTotalEl) -->
         <div class="cash-total-big">
-          <span id="cashSummaryMainLabel">Dinero inicial:</span>
+          <span id="cashSummaryMainLabel">Dinero Asignado:</span>
           <strong id="cashOpenTotal">0,00 €</strong>
         </div>
-
-        <!-- (IMPORTANTE) mantenemos este contenedor porque tu JS lo muestra/oculta en cierre.
-         Lo dejamos “invisible” porque ya mostramos el resumen en la barra inferior,
-         pero el JS lo seguirá encontrando. -->
-        <div id="cashCloseSummary" style="display: none"></div>
+        <!-- 🔽 NUEVO: resumen por formas de pago (solo se rellena en cierre) -->
+        <div id="cashCloseSummary" style="display: none">
+          <div id="payMethodsSummary" class="cash-paymethods-cards"></div>
+        </div>
 
         <!-- Acciones -->
         <div class="cash-actions-page">

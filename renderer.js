@@ -72,13 +72,16 @@ let cashSession = {
   closingTotal: 0,
   closingBreakdown: [],
 
-  // Estado actual de la caja (para cálculo interno, no para rellenar inputs)
+  // Estado actual de la caja
   currentCashBreakdown: [],
 
-  // Totales de la sesión (los rellenaremos cuando exista lógica de ventas)
+  // Totales de la sesión
   cashSalesTotal: 0, // Ingresos en efectivo
-  cashMovementsTotal: 0, // Movimientos de caja (entradas/salidas)
-  totalSales: 0, // Total ventas (cualquier forma de pago)
+  cashMovementsTotal: 0,
+  totalSales: 0,
+
+  // 👇 NUEVO: resumen por forma de pago
+  paymentsByMethod: {}, // { CONT: { code, label, total, count }, BIZUM: {...}, ... }
 };
 
 let cashDialogMode = "open"; // "open" (apertura) o "close" (cierre)
@@ -1501,6 +1504,36 @@ function getCartTotal(items) {
   }, 0);
 }
 
+function registerPaymentUsage(code, amount, label) {
+  if (!code) return;
+
+  const key = String(code).trim() || "DESCONOCIDO";
+  if (!cashSession.paymentsByMethod) {
+    cashSession.paymentsByMethod = {};
+  }
+
+  const entry = cashSession.paymentsByMethod[key] || {
+    code: key,
+    label: label || key,
+    total: 0,
+    count: 0,
+  };
+
+  const inc = Number(amount) || 0;
+  entry.total += inc;
+  entry.count += 1;
+
+  cashSession.paymentsByMethod[key] = entry;
+}
+
+// Registra todos los pagos de una venta (array payResult.pagos)
+function registerPaymentsForCurrentSession(pagos) {
+  if (!Array.isArray(pagos)) return;
+  pagos.forEach((p) => {
+    registerPaymentUsage(p.codpago, p.importe, p.descripcion || p.codpago);
+  });
+}
+
 async function parkCurrentCart(obs = "") {
   if (!cart || cart.length === 0) {
     toast("No hay productos para aparcar.", "warn", "Aparcar");
@@ -2046,6 +2079,108 @@ function updateCloseSummary(countedTotal) {
   if (sumTotalSalesEl)
     sumTotalSalesEl.textContent =
       totalSales.toFixed(2).replace(".", ",") + " €";
+
+  // 👇 actualizar listado de métodos de pago
+  renderPayMethodsSummary();
+}
+
+function renderPayMethodsSummary() {
+  const box = document.getElementById("payMethodsSummary");
+  if (!box) return;
+
+  const map = cashSession.paymentsByMethod || {};
+  const entries = Object.values(map);
+
+  box.innerHTML = "";
+
+  if (!entries.length) {
+    box.style.display = "none";
+    return;
+  }
+
+  box.style.display = "flex";
+
+  entries.sort((a, b) =>
+    (a.label || a.code).localeCompare(b.label || b.code, "es")
+  );
+
+  entries.forEach((pm) => {
+    const label = pm.label || pm.code;
+    const total = Number(pm.total) || 0;
+
+    const card = document.createElement("div");
+    card.className = "cash-pay-card";
+
+    card.innerHTML = `
+      <div class="cash-pay-card-amount">${eur(total)}</div>
+      <div class="cash-pay-card-label">${escapeHtml(label)}</div>
+    `;
+
+    box.appendChild(card);
+  });
+}
+
+function renderCashPayMethodsSummary(payStats) {
+  const wrap = document.getElementById("payMethodsSummary");
+  if (!wrap) return;
+
+  wrap.innerHTML = "";
+
+  const title = document.createElement("div");
+  title.className = "cash-paymethods-title";
+  title.textContent = "Formas de pago usadas";
+  wrap.appendChild(title);
+
+  if (!Array.isArray(payStats) || !payStats.length) {
+    const empty = document.createElement("div");
+    empty.textContent = "Sin ventas en este periodo.";
+    empty.style.fontSize = "12px";
+    empty.style.opacity = "0.7";
+    wrap.appendChild(empty);
+    return;
+  }
+
+  const table = document.createElement("div");
+  table.className = "cash-paymethods-table";
+  wrap.appendChild(table);
+
+  // Cabecera
+  const emptyLabel = document.createElement("div");
+  emptyLabel.className = "pm-label";
+  table.appendChild(emptyLabel);
+
+  payStats.forEach((m) => {
+    const th = document.createElement("div");
+    th.className = "pm-head";
+    th.textContent = m.name;
+    table.appendChild(th);
+  });
+
+  // Fila importes
+  const lblImporte = document.createElement("div");
+  lblImporte.className = "pm-label";
+  lblImporte.textContent = "Importe";
+  table.appendChild(lblImporte);
+
+  payStats.forEach((m) => {
+    const td = document.createElement("div");
+    td.className = "pm-cell";
+    td.textContent = euro2es(m.total); // usa tu helper de € que ya tienes
+    table.appendChild(td);
+  });
+
+  // Fila nº cobros
+  const lblCobros = document.createElement("div");
+  lblCobros.className = "pm-label";
+  lblCobros.textContent = "Cobros";
+  table.appendChild(lblCobros);
+
+  payStats.forEach((m) => {
+    const td = document.createElement("div");
+    td.className = "pm-cell pm-count";
+    td.textContent = String(m.count || 0);
+    table.appendChild(td);
+  });
 }
 
 function cashResetUIForOpening() {
@@ -2077,6 +2212,9 @@ function cashResetUIForOpening() {
     const el = document.getElementById(id);
     if (el) el.textContent = "0,00 €";
   });
+
+  // 👇 limpiar formas de pago usadas en la nueva sesión
+  cashSession.paymentsByMethod = {};
 }
 
 // ---- Apertura / cierre de caja ----
@@ -2103,12 +2241,6 @@ function openCashOpenDialog(mode = "open") {
   }
   if (cashOpenOkBtn) {
     cashOpenOkBtn.textContent = mode === "open" ? "Abrir caja" : "Cerrar caja";
-  }
-
-  // Label del resumen principal
-  if (cashSummaryMainLabel) {
-    cashSummaryMainLabel.textContent =
-      mode === "open" ? "Dinero inicial:" : "Conteo de caja:";
   }
 
   // Mostrar/ocultar resumen extendido
@@ -4345,6 +4477,8 @@ async function onPayButtonClick() {
 
     // ✅ OFFLINE (encolado): no seguimos el flujo online
     if (!sendResult.ok && sendResult.queued) {
+      // 🔢 Registrar uso de métodos de pago en la sesión de caja
+      registerPaymentsForCurrentSession(pagos);
       try {
         // Ticket imprimible mínimo offline (SIN romper nunca)
         lastTicket = buildOfflineTicketPrintData(
@@ -4457,7 +4591,8 @@ async function onPayButtonClick() {
     } catch (e) {
       console.warn("cleanupRecibosFactura falló:", e?.message || e);
     }
-
+    // 🔢 Registrar uso de métodos de pago en la sesión de caja
+    registerPaymentsForCurrentSession(pagos);
     if (idfactura) {
       try {
         const fc = await fetchFacturaClienteById(idfactura);
