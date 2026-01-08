@@ -138,6 +138,16 @@ const cashOpenTotalEl = document.getElementById("cashOpenTotal");
 const cashHeaderBtn = document.getElementById("cashHeaderBtn");
 const cashHeaderLabel = document.getElementById("cashHeaderLabel");
 
+// ===== Movimientos de caja =====
+const cashMoveOverlay = document.getElementById("cashMoveOverlay");
+const cashMoveBtn = document.getElementById("cashMoveBtn");
+const cashMoveAmountEl = document.getElementById("cashMoveAmount");
+const cashMoveReasonEl = document.getElementById("cashMoveReason");
+const cashMoveErrorEl = document.getElementById("cashMoveError");
+const cashMoveCancelBtn = document.getElementById("cashMoveCancelBtn");
+const cashMoveSaveBtn = document.getElementById("cashMoveSaveBtn");
+const cashMoveCloseX = document.getElementById("cashMoveCloseX");
+
 // Resumen de caja (label principal + resumen extendido de cierre)
 const cashSummaryMainLabel = document.getElementById("cashSummaryMainLabel");
 const cashCloseSummary = document.getElementById("cashCloseSummary");
@@ -1127,11 +1137,17 @@ function numPadConfirm() {
     return;
   }
 
-  // cash (permite 0)
+  // ✅ permitir decimales en movimientos de caja
   if (numPadMode === "cash") {
-    value = Math.round(Number(value));
+    value = Number(value);
     if (!isFinite(value) || value < 0) value = 0;
-    if (typeof numPadOnConfirm === "function") numPadOnConfirm(value);
+
+    // redondeamos a 2 decimales máximo (0.015 -> 0.02)
+    value = Math.round(value * 100) / 100;
+
+    if (typeof numPadOnConfirm === "function") {
+      numPadOnConfirm(value);
+    }
     closeNumPad();
     return;
   }
@@ -2055,14 +2071,18 @@ function hideTerminalOverlay() {
 function updateCloseSummary(countedTotal) {
   if (!cashCloseSummary) return;
 
-  // Datos base de la sesión
   const opening = cashSession.openingTotal || 0;
   const cashIncome = cashSession.cashSalesTotal || 0;
   const movements = cashSession.cashMovementsTotal || 0;
-  const expectedCash = opening + cashIncome + movements;
+
+  // 👇 si tenemos el totalcaja de FS, usamos ese; si no, calculamos
+  const expectedCash =
+    cashSession.expectedCashFS != null
+      ? Number(cashSession.expectedCashFS)
+      : opening + cashIncome + movements;
+
   const totalSales = cashSession.totalSales || 0;
 
-  // Escribimos los valores
   if (sumOpeningEl)
     sumOpeningEl.textContent = opening.toFixed(2).replace(".", ",") + " €";
   if (sumCashIncomeEl)
@@ -2080,8 +2100,44 @@ function updateCloseSummary(countedTotal) {
     sumTotalSalesEl.textContent =
       totalSales.toFixed(2).replace(".", ",") + " €";
 
-  // 👇 actualizar listado de métodos de pago
   renderPayMethodsSummary();
+}
+
+// Rellena cashSession y los textos inferiores de cierre con datos reales de FS
+function applyRemoteCajaToSession(remoteCaja) {
+  if (!remoteCaja) return;
+
+  const opening = Number(remoteCaja.dineroini || 0);
+  const cashIncome = Number(remoteCaja.ingresos || 0);
+  const movements = Number(remoteCaja.totalmovi || 0);
+  const expectedCash = Number(
+    remoteCaja.totalcaja != null
+      ? remoteCaja.totalcaja
+      : opening + cashIncome + movements
+  );
+  const totalSales = Number(remoteCaja.totaltickets || 0);
+
+  // Guardamos en sesión para que updateCloseSummary use estos valores
+  cashSession.openingTotal = opening;
+  cashSession.cashSalesTotal = cashIncome;
+  cashSession.cashMovementsTotal = movements;
+  cashSession.totalSales = totalSales;
+  cashSession.expectedCashFS = expectedCash; // 👈 nuevo campo
+
+  // Actualizamos las etiquetas inferiores (sin contar todavía el conteo de caja)
+  if (sumOpeningEl)
+    sumOpeningEl.textContent = opening.toFixed(2).replace(".", ",") + " €";
+  if (sumCashIncomeEl)
+    sumCashIncomeEl.textContent =
+      cashIncome.toFixed(2).replace(".", ",") + " €";
+  if (sumMovementsEl)
+    sumMovementsEl.textContent = movements.toFixed(2).replace(".", ",") + " €";
+  if (sumExpectedCashEl)
+    sumExpectedCashEl.textContent =
+      expectedCash.toFixed(2).replace(".", ",") + " €";
+  if (sumTotalSalesEl)
+    sumTotalSalesEl.textContent =
+      totalSales.toFixed(2).replace(".", ",") + " €";
 }
 
 function renderPayMethodsSummary() {
@@ -2219,12 +2275,7 @@ function cashResetUIForOpening() {
 
 // ---- Apertura / cierre de caja ----
 function openCashOpenDialog(mode = "open") {
-  if (mode === "open") {
-    cashResetUIForOpening();
-    cashWrapInputsWithSteppers();
-  }
   if (LOGIN_ACTIVE) return;
-
   if (!cashOpenOverlay) return;
   if (!currentTerminal) {
     toast("Selecciona un terminal primero.", "warn", "Caja");
@@ -2233,7 +2284,6 @@ function openCashOpenDialog(mode = "open") {
 
   cashDialogMode = mode;
 
-  // Cambiar título y texto del botón según modo
   const titleEl = document.getElementById("cashDialogTitle");
   if (titleEl) {
     titleEl.textContent =
@@ -2243,12 +2293,10 @@ function openCashOpenDialog(mode = "open") {
     cashOpenOkBtn.textContent = mode === "open" ? "Abrir caja" : "Cerrar caja";
   }
 
-  // Mostrar/ocultar resumen extendido
   if (cashCloseSummary) {
     cashCloseSummary.style.display = mode === "close" ? "block" : "none";
   }
 
-  // Poner nombre del terminal
   if (cashOpenTerminalName) {
     cashOpenTerminalName.textContent = currentTerminal.name;
   }
@@ -2256,31 +2304,90 @@ function openCashOpenDialog(mode = "open") {
   const inputs = cashOpenOverlay.querySelectorAll(
     ".cash-grid-page input[data-denom]"
   );
-
   inputs.forEach((inp) => (inp.value = "0"));
+  cashOpenOverlay.querySelectorAll(".cash-qty").forEach((s) => {
+    s.textContent = "0";
+  });
 
+  // 👉 AQUÍ LA DIFERENCIA:
   if (mode === "open") {
-    // Apertura: empezamos siempre en 0
-    inputs.forEach((inp) => {
-      inp.value = "0";
-    });
-    cashOpenOverlay.querySelectorAll(".cash-qty").forEach((s) => {
-      s.textContent = "0";
-    });
+    cashResetUIForOpening();
+    cashWrapInputsWithSteppers();
+    updateCashOpenTotal(); // solo afecta a apertura
   } else {
-    // Cierre: también empezamos en 0 (el trabajador cuenta desde cero)
-    inputs.forEach((inp) => {
-      inp.value = "0";
-    });
-    cashOpenOverlay.querySelectorAll(".cash-qty").forEach((s) => {
-      s.textContent = "0";
-    });
+    // MODO CIERRE: cargamos datos reales desde FacturaScripts
+    (async () => {
+      try {
+        const remoteCaja = await apiReadCurrentCaja();
+        if (remoteCaja) {
+          applyRemoteCajaToSession(remoteCaja);
+          // Conteo de caja inicial = 0
+          updateCloseSummary(0);
+        } else {
+          // fallback: si no hemos podido leer, usamos lo que ya tuviera cashSession
+          updateCloseSummary(Number(cashSession.closingTotal || 0));
+        }
+      } catch (e) {
+        console.warn("No se pudo leer la caja remota:", e);
+        updateCloseSummary(Number(cashSession.closingTotal || 0));
+      }
+    })();
   }
 
-  // Recalcular total según valores actuales
-  updateCashOpenTotal();
-
   cashOpenOverlay.classList.remove("hidden");
+}
+
+function openCashMoveDialog() {
+  if (!cashSession.open) {
+    toast("Primero debes abrir la caja.", "warn", "Caja");
+    return;
+  }
+  if (!cashMoveOverlay) return;
+
+  // Reset campos
+  if (cashMoveAmountEl) cashMoveAmountEl.value = "";
+  if (cashMoveReasonEl) cashMoveReasonEl.value = "";
+  if (cashMoveErrorEl) cashMoveErrorEl.textContent = "";
+
+  const radios = cashMoveOverlay.querySelectorAll('input[name="cashMoveType"]');
+  if (radios && radios[0]) radios[0].checked = true; // Entrada por defecto
+
+  cashMoveOverlay.classList.remove("hidden");
+  lockAppUI();
+}
+
+function closeCashMoveDialog() {
+  if (!cashMoveOverlay) return;
+  cashMoveOverlay.classList.add("hidden");
+  unlockAppUI();
+}
+
+if (cashMoveBtn) {
+  cashMoveBtn.onclick = () => {
+    openCashMoveDialog();
+  };
+}
+
+if (cashMoveCancelBtn) {
+  cashMoveCancelBtn.onclick = () => {
+    closeCashMoveDialog();
+  };
+}
+
+if (cashMoveCloseX) {
+  cashMoveCloseX.onclick = () => {
+    closeCashMoveDialog();
+  };
+}
+
+// Cerrar clicando fuera del recuadro
+if (cashMoveOverlay) {
+  cashMoveOverlay.addEventListener("click", (e) => {
+    const box = e.target.closest(".simple-dialog");
+    if (!box) {
+      closeCashMoveDialog();
+    }
+  });
 }
 
 function getCashHiddenInput(denom) {
@@ -2787,11 +2894,23 @@ async function apiWrite(resource, method = "POST", fields = {}) {
     body: body.toString(),
   });
 
-  if (res.status === 429) throw new Error("API 429 (demasiadas peticiones).");
-
-  const data = await res.json().catch(() => null);
+  const text = await res.text(); // <- leemos el texto bruto
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (e) {
+    // no es JSON, no pasa nada
+  }
 
   if (!res.ok || (data && data.status === "error")) {
+    console.error(
+      "⚠️ Error API en",
+      resource,
+      "HTTP",
+      res.status,
+      "Respuesta:",
+      text
+    );
     throw new Error(data?.message || `HTTP ${res.status} en ${resource}`);
   }
 
@@ -6249,6 +6368,42 @@ function askEmailWithModal() {
   });
 }
 
+// --- Teclados para el modal de movimientos ---
+const cashMoveAmountInput = document.getElementById("cashMoveAmount");
+const cashMoveReasonInput = document.getElementById("cashMoveReason");
+const cashMoveAmountKeyboardBtn = document.getElementById(
+  "cashMoveAmountKeyboardBtn"
+);
+const cashMoveReasonKeyboardBtn = document.getElementById(
+  "cashMoveReasonKeyboardBtn"
+);
+
+// Teclado numérico para cantidad
+if (cashMoveAmountKeyboardBtn && cashMoveAmountInput) {
+  cashMoveAmountKeyboardBtn.onclick = () => {
+    const initial = cashMoveAmountInput.value
+      ? Number(cashMoveAmountInput.value.replace(",", "."))
+      : 0;
+
+    openNumPad(
+      initial.toString(),
+      (val) => {
+        // formatear a 2 decimales en el input
+        cashMoveAmountInput.value = Number(val).toFixed(2);
+      },
+      "Movimiento de caja",
+      "cash"
+    );
+  };
+}
+
+// Teclado QWERTY para motivo
+if (cashMoveReasonKeyboardBtn && cashMoveReasonInput) {
+  cashMoveReasonKeyboardBtn.onclick = () => {
+    openQwertyForInput(cashMoveReasonInput, "text");
+  };
+}
+
 function buildDevolucionLineUI(l) {
   const soldQty = Number(l.cantidad || 0);
   const taxRate = extractTaxRateFromCode(l.codimpuesto);
@@ -7236,6 +7391,181 @@ async function renderQueuedTicketsIfAny() {
   }
 }
 
+async function saveCashMovement() {
+  if (!cashMoveAmountEl || !cashMoveReasonEl || !cashMoveErrorEl) return;
+
+  cashMoveErrorEl.textContent = "";
+
+  const rawAmount = (cashMoveAmountEl.value || "").replace(",", ".");
+  let amount = parseFloat(rawAmount);
+
+  if (!isFinite(amount) || amount <= 0) {
+    cashMoveErrorEl.textContent = "Introduce una cantidad mayor que 0.";
+    cashMoveAmountEl.focus();
+    return;
+  }
+
+  const typeRadio = cashMoveOverlay.querySelector(
+    'input[name="cashMoveType"]:checked'
+  );
+  const type = typeRadio ? typeRadio.value : "in"; // "in" o "out"
+
+  const sign = type === "out" ? -1 : 1;
+  const signedAmount = sign * amount;
+
+  let reason = (cashMoveReasonEl.value || "").trim();
+  if (!reason) {
+    reason = type === "out" ? "Salida de caja" : "Entrada de caja";
+  }
+
+  // 1) Actualizar total de movimientos en la sesión
+  const currentMov = Number(cashSession.cashMovementsTotal || 0);
+  cashSession.cashMovementsTotal = currentMov + signedAmount;
+
+  // 2) Registrar en FacturaScripts (si es posible)
+  try {
+    await apiCreateCashMovementInFS({
+      amount, // cantidad POSITIVA
+      type, // "in" | "out"
+      reason, // texto con motivo
+    });
+
+    // 🔁 actualizar totales de la caja en FS en cada movimiento
+    await syncFsCajaTotalsRealtime();
+  } catch (e) {
+    console.warn("No se pudo registrar el movimiento en FacturaScripts:", e);
+    toast(
+      "Movimiento guardado solo en el TPV (no se registró en FacturaScripts).",
+      "warn",
+      "Caja"
+    );
+  }
+
+  // 3) Aviso y cerrar
+  const prefix = type === "out" ? "-" : "+";
+  toast(
+    `Movimiento de caja registrado: ${prefix}${amount.toFixed(2)} €`,
+    "ok",
+    "Caja"
+  );
+
+  closeCashMoveDialog();
+}
+
+if (cashMoveSaveBtn) {
+  cashMoveSaveBtn.onclick = () => {
+    saveCashMovement();
+  };
+}
+
+// Crear un movimiento de caja en FacturaScripts
+// type: 'in' | 'out'
+async function apiCreateCashMovementInFS({ amount, type, reason }) {
+  if (TPV_STATE.offline || TPV_STATE.locked) return null;
+
+  // Caja remota abierta en FS (idcaja)
+  const fsBoxId =
+    (cashSession && cashSession.remoteCajaId) ||
+    (cashSession && cashSession.idcaja) ||
+    null;
+
+  // Terminal y agente activos
+  const fsTerminal = currentTerminal || null;
+  const fsAgent = currentAgent || null;
+
+  console.log("DEBUG cash movement FS:", {
+    fsBoxId,
+    fsTerminal,
+    fsAgent,
+    cashSession,
+  });
+
+  // Si falta algo, no mandamos a FS
+  if (!fsBoxId || !fsTerminal || !fsAgent) {
+    console.warn("FS no configurado — movimiento solo en TPV local", {
+      fsBoxId,
+      fsTerminal,
+      fsAgent,
+      cashSession,
+    });
+    return null;
+  }
+
+  // Cantidad con signo según tipo
+  const signedAmount =
+    type === "out"
+      ? -Math.abs(Number(amount) || 0)
+      : Math.abs(Number(amount) || 0);
+
+  const nick = fsAgent.nick || getLoginUser() || "admin";
+
+  const payload = {
+    amount: signedAmount, // con signo
+    idcaja: String(fsBoxId), // ID caja abierta
+    idtpv: String(fsTerminal.id), // TPV (terminal)
+    codagente: String(fsAgent.codagente), // Agente
+    motive:
+      reason && reason.trim()
+        ? reason.trim()
+        : type === "out"
+        ? "Salida de caja"
+        : "Entrada de caja",
+    nick, // quién crea
+  };
+
+  console.log("Enviando movimiento de caja a tpvmovimientos:", payload);
+
+  const resp = await apiWrite("tpvmovimientos", "POST", payload);
+  console.log("Movimiento de caja creado en FacturaScripts:", resp);
+
+  return resp;
+}
+
+// Actualizar totales de la caja abierta en FacturaScripts
+async function syncFsCajaTotalsRealtime() {
+  if (TPV_STATE.offline || TPV_STATE.locked) return;
+
+  const fsBoxId =
+    (cashSession && cashSession.remoteCajaId) ||
+    (cashSession && cashSession.idcaja) ||
+    null;
+
+  const fsTerminal = currentTerminal || null;
+  const fsAgent = currentAgent || null;
+
+  if (!fsBoxId || !fsTerminal || !fsAgent) {
+    console.warn("No se puede sincronizar caja en FS (faltan datos):", {
+      fsBoxId,
+      fsTerminal,
+      fsAgent,
+    });
+    return;
+  }
+
+  // ⚠️ Ajusta estos campos a los que realmente use tu FS en la tabla tpv_cajas
+  const totalMovimientos = Number(cashSession.cashMovementsTotal || 0);
+  const dineroInicial = Number(
+    cashSession.openingTotal || cashSession.initialCash || 0
+  );
+  const totalEnCaja = dineroInicial + totalMovimientos;
+
+  const payload = {
+    idcaja: Number(fsBoxId),
+    dineroini: dineroInicial,
+    totalmovi: totalMovimientos,
+    totalcaja: totalEnCaja,
+    // ...y los demás campos que quieras mantener (ingresos, totaltickets…)
+  };
+
+  console.log("Actualizando totales de caja en FacturaScripts:", payload);
+
+  try {
+    await apiWrite("tpvcajas", "PUT", payload);
+  } catch (e) {
+    console.warn("Error al actualizar totales de caja en FS:", e);
+  }
+}
+
 function getAllTicketsForUI(serverTickets) {
   const offline = loadOfflineTicketsForTicketsModal(); // tus OFF-...
   const server = Array.isArray(serverTickets) ? serverTickets : [];
@@ -7256,4 +7586,80 @@ function getAllTicketsForUI(serverTickets) {
   server.forEach(push);
 
   return out;
+}
+
+function resetCashSessionState() {
+  if (!cashSession) cashSession = {};
+
+  // cantidades que se arrastran de un cierre a otro
+  cashSession.cashMovementsTotal = 0;
+  cashSession.cashSalesTotal = 0;
+  cashSession.totalSales = 0;
+
+  // opcional: deja a 0 el efectivo inicial local;
+  // cuando abras la nueva caja, se volverá a rellenar desde FS
+  cashSession.openingTotal = 0;
+  cashSession.initialCash = 0;
+}
+
+function resetCashCloseUI() {
+  // poner a 0 todas las casillas de conteo
+  document.querySelectorAll(".cash-hidden-input").forEach((input) => {
+    input.value = "0";
+  });
+
+  // limpiar observaciones
+  const obs = document.getElementById("cashObsTextarea");
+  if (obs) obs.value = "";
+
+  // recalcular totales a partir de 0
+  if (typeof recalcCashTotals === "function") {
+    recalcCashTotals();
+  }
+}
+
+// GET genérico (similar a fetchApiResource, pero para un solo registro)
+async function apiRead(resource) {
+  const cfg = window.RECIPOK_API || {};
+  if (!cfg.baseUrl || !cfg.apiKey) throw new Error("Config API no definida");
+
+  const base = cfg.baseUrl.replace(/\/+$/, "");
+  const url = `${base}/${String(resource).replace(/^\/+/, "")}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      Token: cfg.apiKey,
+    },
+  });
+
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (e) {
+    console.error("Respuesta no JSON en", resource, ":", text);
+  }
+
+  if (!res.ok || (data && data.status === "error")) {
+    throw new Error(data?.message || `HTTP ${res.status} en ${resource}`);
+  }
+
+  return data;
+}
+
+// Lee la caja remota usando cashSession.remoteCajaId
+async function apiReadCurrentCaja() {
+  if (TPV_STATE.offline || TPV_STATE.locked) return null;
+
+  const remoteId = cashSession.remoteCajaId;
+  if (!remoteId) {
+    console.warn("No hay remoteCajaId para leer tpvcajas.");
+    return null;
+  }
+
+  const resp = await apiRead(`tpvcajas/${remoteId}`);
+  const doc = resp?.doc || resp?.data || resp || null;
+  return doc;
 }

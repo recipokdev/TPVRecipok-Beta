@@ -53,6 +53,16 @@
             💶 <span id="cashHeaderLabel">Abrir caja</span>
           </button>
 
+          <!-- NUEVO: botón de movimientos de caja -->
+          <button
+            type="button"
+            class="cart-header-box"
+            id="cashMoveBtn"
+            title="Movimientos de caja"
+          >
+            💸 <span>Mov.</span>
+          </button>
+
           <button
             type="button"
             class="cart-header-box"
@@ -568,6 +578,88 @@
           <button id="cashOpenOkBtn" type="button" class="btn-cash-ok">
             Guardar
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overlay: Nuevo movimiento de caja -->
+    <div id="cashMoveOverlay" class="simple-overlay hidden">
+      <div class="simple-dialog cash-move-dialog">
+        <!-- Cabecera -->
+        <div class="cash-move-header">
+          <h2>Nuevo movimiento de caja</h2>
+          <button type="button" id="cashMoveCloseX" class="cash-move-close">
+            ✕
+          </button>
+        </div>
+
+        <!-- Cuerpo -->
+        <div class="cash-move-body">
+          <!-- Cantidad -->
+          <label for="cashMoveAmount" class="cash-move-label">Cantidad</label>
+          <div class="cash-move-amount-row">
+            <div class="cash-move-amount-wrap">
+              <input
+                id="cashMoveAmount"
+                type="number"
+                min="0"
+                step="1"
+                inputmode="decimal"
+                class="cash-move-input"
+              />
+              <span class="cash-move-euro">€</span>
+            </div>
+            <button
+              type="button"
+              id="cashMoveAmountKeyboardBtn"
+              class="cash-move-key-btn"
+              title="Teclado numérico"
+            >
+              🔢
+            </button>
+          </div>
+
+          <!-- Tipo -->
+          <div class="cash-move-type">
+            <div class="cash-move-label">Tipo</div>
+            <label class="cash-move-radio">
+              <input type="radio" name="cashMoveType" value="in" checked />
+              <span>Entrada de dinero</span>
+            </label>
+            <label class="cash-move-radio">
+              <input type="radio" name="cashMoveType" value="out" />
+              <span>Salida de dinero</span>
+            </label>
+          </div>
+
+          <!-- Motivo -->
+          <div class="cash-move-reason">
+            <label for="cashMoveReason" class="cash-move-label">Motivo</label>
+            <div class="cash-move-reason-row">
+              <textarea
+                id="cashMoveReason"
+                rows="3"
+                class="cash-move-textarea"
+                placeholder="Ej: cambio inicial, ingreso en banco, pago proveedor..."
+              ></textarea>
+              <button
+                type="button"
+                id="cashMoveReasonKeyboardBtn"
+                class="cash-move-key-btn"
+                title="Teclado de texto"
+              >
+                ⌨️
+              </button>
+            </div>
+          </div>
+
+          <div id="cashMoveError" class="dialog-error"></div>
+        </div>
+
+        <!-- Acciones -->
+        <div class="dialog-actions cash-move-actions">
+          <button id="cashMoveCancelBtn" type="button">Cancelar</button>
+          <button id="cashMoveSaveBtn" type="button">Guardar</button>
         </div>
       </div>
     </div>

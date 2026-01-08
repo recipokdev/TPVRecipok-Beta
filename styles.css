@@ -2086,3 +2086,154 @@ body.modal-locked .cart-card {
   font-size: 13px;
   color: #6b7280;
 }
+
+/* =============================================================
+   14) MODAL MOVIMIENTOS DE CAJA (estilo TPV)
+   ============================================================= */
+
+.cash-move-dialog {
+  width: min(480px, 92vw);
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.35);
+  padding: 14px 18px 12px;
+  box-sizing: border-box;
+}
+
+/* Cabecera */
+.cash-move-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #e5edf9;
+  padding-bottom: 6px;
+}
+
+.cash-move-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.cash-move-close {
+  border: none;
+  background: #eff3ff;
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+/* Cuerpo */
+.cash-move-body {
+  font-size: 14px;
+  color: #111827;
+}
+
+.cash-move-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+  color: #4b5563;
+}
+
+/* Cantidad */
+.cash-move-amount-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.cash-move-amount-wrap {
+  position: relative;
+  flex: 1;
+}
+
+.cash-move-input {
+  width: 100%;
+  padding: 8px 32px 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  font-size: 16px;
+  box-sizing: border-box;
+}
+
+.cash-move-euro {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #6b7280;
+  font-size: 13px;
+}
+
+/* Botón de teclado (numérico y texto) */
+.cash-move-key-btn {
+  width: 40px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid #cbd5f5;
+  background: #e4edff;
+  cursor: pointer;
+  font-size: 16px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: #1d4ed8;
+}
+
+.cash-move-key-btn:active {
+  transform: scale(0.97);
+}
+
+/* Tipo */
+.cash-move-type {
+  margin-bottom: 12px;
+}
+
+.cash-move-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 16px;
+  font-size: 13px;
+  color: #111827;
+}
+
+/* Motivo */
+.cash-move-reason-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.cash-move-textarea {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  font-size: 14px;
+  resize: vertical;
+  min-height: 70px;
+}
+
+/* Acciones */
+.cash-move-actions {
+  margin-top: 12px;
+}
+
+.cash-move-actions button {
+  border-radius: 999px;
+  padding: 7px 14px;
+}
+
+.cash-move-actions button:last-child {
+  background: #198cff;
+  border-color: #198cff;
+}
