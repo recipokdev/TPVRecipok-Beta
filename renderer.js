@@ -1244,7 +1244,7 @@ function numPadConfirm() {
     if (typeof numPadOnConfirm === "function") {
       // en qty: 1; en price: usar original/actual
       if (numPadMode === "price") {
-        const item = cart.find((c) => c.id === numPadTargetItemId);
+        const item = cart.find((c) => c._lineId === numPadTargetItemId);
         const current = item
           ? getUnitGross(item)
           : numPadOriginalUnitGross || 0;
@@ -4662,6 +4662,20 @@ async function ensurePrinterSelected() {
   return chosen;
 }
 
+function normalizeRefundDesc(desc) {
+  return String(desc || "")
+    .replace(/^DEV\s*-\s*/i, "")
+    .trim()
+    .toLowerCase();
+}
+
+function keyForRefundMatch(desc, pvpunitario, codimpuesto) {
+  const d = normalizeRefundDesc(desc);
+  const p = Math.round(Math.abs(Number(pvpunitario || 0)) * 100) / 100;
+  const c = String(codimpuesto || "").trim();
+  return `${d}|${p}|${c}`;
+}
+
 async function printTicket(ticket) {
   if (!ticket) {
     toast("No hay ticket para imprimir.", "warn", "Impresión");
@@ -4691,7 +4705,7 @@ async function printTicket(ticket) {
 
   const doc = new DOMParser().parseFromString(templateHtml, "text/html");
 
-  // Método pago (si hay desglose, lo mostramos)
+  // 2) Método pago
   if (Array.isArray(ticket.pagos) && ticket.pagos.length) {
     const txt = ticket.pagos
       .map((p) => `${p.descripcion || p.codpago}: ${euro2es(p.importe)}`)
@@ -4709,23 +4723,16 @@ async function printTicket(ticket) {
     ticket.hora ||
     now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
 
-  // ✅ FACTURA / FECHA / CLIENTE (esto faltaba)
+  // 3) Factura / fecha / cliente
   setText(doc, "invoiceNumber", ticket.numero != null ? ticket.numero : "—");
-
-  // En el HTML "ticketDate" es fecha + hora en una misma línea
-  const fechaHoraTexto = `${fecha} ${hora}`;
-  setText(doc, "ticketDate", fechaHoraTexto);
-
-  // Nombre de cliente (del input del carrito)
+  setText(doc, "ticketDate", `${fecha} ${hora}`);
   setText(doc, "clientName", (ticket.clientName || "").trim() || "Cliente");
 
-  // 2) Datos “empresa” (si no tienes API aún, usa placeholders)
-  // TODO: cuando tengas endpoint real, rellena ticket.company.*
+  // 4) Datos empresa
   const emp = ticket.company || companyInfo || null;
 
   const logoEl = doc.getElementById("companyLogo");
   const logoUrl = companyLogoUrl || "";
-
   if (logoEl && logoUrl) {
     logoEl.setAttribute("src", logoUrl);
     logoEl.style.display = "inline-block";
@@ -4733,14 +4740,13 @@ async function printTicket(ticket) {
 
   setText(doc, "companyShortName", emp?.nombrecorto || "—");
   setText(doc, "companyLegalName", emp?.nombre || "");
-
   setText(doc, "companyAddress", emp?.direccion || "");
   setText(doc, "companyZip", emp?.codpostal ? emp.codpostal + ", " : "");
   setText(doc, "companyCity", emp?.ciudad || "");
   setText(doc, "companyCif", emp?.cifnif || "—");
   setText(doc, "companyPhone", emp?.telefono1 || "");
 
-  // 4) TPV / agente (usa estado actual si existe)
+  // 5) TPV / agente
   const terminalTexto =
     (currentTerminal?.name || ticket.terminalName || "").trim() || "—";
   const agenteTexto =
@@ -4748,29 +4754,109 @@ async function printTicket(ticket) {
   setText(doc, "terminalName", terminalTexto);
   setText(doc, "agentName", agenteTexto);
 
-  // 5) Pintar líneas + calcular total + desglose IVA
+  // 6) Pintar líneas + calcular total + IVA
   const itemsEl = doc.getElementById("items");
   if (itemsEl) itemsEl.innerHTML = "";
 
-  const lineas = Array.isArray(ticket.lineas) ? ticket.lineas : [];
-  let total = 0;
+  // ---------- LÍNEAS A IMPRIMIR ----------
+  // Partimos de las líneas del ticket recibido
+  let lineas = Array.isArray(ticket.lineas) ? ticket.lineas : [];
 
-  // taxMap: { rate: { base, iva } }
-  const taxMap = {};
+  // Si es FACTURA ORIGINAL (no rectificativa) y sabemos su idfactura,
+  // reconstruimos para mostrar:
+  //   + pendiente (positivo)
+  //   - devuelto  (negativo)
+  try {
+    const raw = ticket._raw || {};
+    const isRectificativa = !!(
+      (
+        raw.idfacturarect ||
+        raw.facturarect ||
+        raw.rectificada ||
+        ticket.idfacturarect
+      ) // por si tu mapeo lo trae arriba
+    );
+
+    if (!isRectificativa && ticket.idfactura) {
+      const origLines = await fetchLineasFactura(ticket.idfactura);
+      const refundedMap = await buildRefundedQtyMapForOriginal(
+        ticket.idfactura
+      );
+
+      const rebuilt = [];
+
+      for (const l of origLines || []) {
+        const sold = Number(l.cantidad || 0);
+
+        // clave consistente para cruzar devoluciones
+        const k = keyForRefundMatch(
+          l.descripcion,
+          l.pvpunitario,
+          l.codimpuesto
+        );
+
+        const refunded = Number(refundedMap[k] || 0);
+        const pending = Math.max(0, sold - refunded);
+
+        const tax = Number(extractTaxRateFromCode(l.codimpuesto) || 0);
+        const unitGross = (Number(l.pvpunitario) || 0) * (1 + tax / 100);
+
+        if (pending > 0) {
+          rebuilt.push({
+            descripcion: l.descripcion,
+            cantidad: pending,
+            pvpunitario: l.pvpunitario,
+            codimpuesto: l.codimpuesto,
+            taxRate: tax,
+            // precio bruto ya calculado para evitar líos
+            __forceUnitGross: unitGross,
+          });
+        }
+
+        if (refunded > 0) {
+          rebuilt.push({
+            descripcion: `DEV - ${normalizeRefundDesc(l.descripcion)}`,
+            cantidad: -refunded,
+            pvpunitario: l.pvpunitario,
+            codimpuesto: l.codimpuesto,
+            taxRate: tax,
+            __forceUnitGross: unitGross,
+          });
+        }
+      }
+
+      lineas = rebuilt;
+    }
+  } catch (e) {
+    console.warn("No pude reconstruir líneas con devoluciones:", e);
+  }
+
+  // ---------- CÁLCULOS ----------
+  let total = 0;
+  const taxMap = {}; // { rate: { base, iva } }
 
   for (const l of lineas) {
     const name = (l.name || l.descripcion || "Producto").toString().trim();
-    const qty = Number(l.qty ?? l.cantidad ?? 1) || 1;
+    const qtyRaw = Number(l.qty ?? l.cantidad ?? 1) || 1;
 
-    // unitGross (con IVA)
+    // unitGross (con IVA), prioridad clara:
+    // 1) __forceUnitGross (solo cuando reconstruimos original)
+    // 2) grossPriceOverride (si tú lo usas en TPV)
+    // 3) grossPrice (ya bruto)
+    // 4) price (neto) + IVA
+    // 5) pvpunitario (FS neto) + IVA
     let unitGross = 0;
-    if (typeof l.grossPrice === "number" && !isNaN(l.grossPrice)) {
+
+    if (l && typeof l.__forceUnitGross === "number") {
+      unitGross = Number(l.__forceUnitGross) || 0;
+    } else if (l && l.grossPriceOverride != null) {
+      unitGross = Number(l.grossPriceOverride) || 0;
+    } else if (typeof l.grossPrice === "number" && !isNaN(l.grossPrice)) {
       unitGross = Number(l.grossPrice);
     } else if (typeof l.price === "number" && !isNaN(l.price)) {
       const tax = Number(l.taxRate ?? 0) || 0;
       unitGross = Number(l.price) * (1 + tax / 100);
     } else if (typeof l.pvpunitario !== "undefined") {
-      // fallback: si te llega pvpunitario neto, lo convertimos con taxRate/codimpuesto
       const tax =
         Number(l.taxRate ?? extractTaxRateFromCode(l.codimpuesto) ?? 0) || 0;
       unitGross = (Number(l.pvpunitario) || 0) * (1 + tax / 100);
@@ -4779,10 +4865,9 @@ async function printTicket(ticket) {
     const rate =
       Number(l.taxRate ?? extractTaxRateFromCode(l.codimpuesto) ?? 0) || 0;
 
-    const lineGross = unitGross * qty;
+    const lineGross = unitGross * qtyRaw;
     total += lineGross;
 
-    // base/iva por tipo
     const divisor = 1 + rate / 100;
     const lineBase = divisor > 0 ? lineGross / divisor : lineGross;
     const lineIva = lineGross - lineBase;
@@ -4791,13 +4876,14 @@ async function printTicket(ticket) {
     taxMap[rate].base += lineBase;
     taxMap[rate].iva += lineIva;
 
-    // Render item
+    // Render item (si qty es negativa, se verá con "-" y el total también)
     if (itemsEl) {
+      const qtyTxt = qtyRaw; // si quieres, aquí puedes formatear a "-1" etc.
       const div = doc.createElement("div");
       div.className = "item";
       div.innerHTML = `
         <div class="item-top">
-          <div class="qty">${qty}</div>
+          <div class="qty">${qtyTxt}</div>
           <div class="desc">${escapeHtml(name)}</div>
           <div class="ltotal">${eur(lineGross)}</div>
         </div>
@@ -4806,24 +4892,23 @@ async function printTicket(ticket) {
     }
   }
 
-  // 6) Desglose IVA como la imagen (Base Imponible X% / IVA X%)
+  // 7) Desglose IVA
   const taxSummaryEl = doc.getElementById("taxSummary");
   if (taxSummaryEl) taxSummaryEl.innerHTML = "";
 
   const ratesSorted = Object.keys(taxMap)
     .map((r) => Number(r))
-    .filter((r) => !isNaN(r) && r > 0)
+    .filter((r) => !isNaN(r) && r !== 0)
     .sort((a, b) => a - b);
 
   for (const r of ratesSorted) {
     const base = taxMap[r].base;
     const iva = taxMap[r].iva;
-
     appendRow(taxSummaryEl, `Base Imponible ${r}%`, eur(base));
     appendRow(taxSummaryEl, `IVA ${r}%`, eur(iva));
   }
 
-  // 7) Totales
+  // 8) Totales
   setText(doc, "grandTotal", eur(total));
   setText(doc, "paidAmount", eur(total));
 
@@ -4837,6 +4922,7 @@ async function printTicket(ticket) {
     html: finalHtml,
     deviceName: printerName,
   });
+
   if (!res || !res.ok) {
     toast(
       "No se pudo imprimir: " + (res?.error || "error desconocido"),
@@ -4845,8 +4931,10 @@ async function printTicket(ticket) {
     );
     return;
   }
+
   toast("Ticket impreso ✅", "ok", "Impresión");
-  // 💰 Abrir cajón SOLO si es efectivo
+
+  // Abrir cajón solo si es efectivo
   if (isCash) {
     const drawer = await window.TPV_PRINT.openCashDrawer(printerName);
     if (!drawer || !drawer.ok) {
@@ -5922,11 +6010,19 @@ function renderTicketsList(tickets) {
     // ✅ ticket devuelto = total negativo
     const isRectificativa = Number(t.idfacturarect || 0) > 0;
     const isRefunded = isRectificativa || totalNum < 0;
+    const isPartial = !!t._hasPartialRefund;
     if (isRefunded) div.classList.add("ticket-refunded");
 
     div.innerHTML = `
       <div class="ticket-left">
-        <div class="ticket-num">${escapeHtml(num)}</div>
+        <div class="ticket-num">
+  ${escapeHtml(num)}
+  ${
+    isPartial
+      ? `<span style="margin-left:8px; font-size:12px; font-weight:700; color:#f59e0b;">PARCIAL</span>`
+      : ""
+  }
+</div>
 
         <div class="ticket-mid">
           <span class="ticket-client">${escapeHtml(cliente)}</span>
@@ -6714,25 +6810,77 @@ async function fetchUltimosTickets(limit = 60, days = 30) {
 function hideRefundedOriginals(rows) {
   const list = Array.isArray(rows) ? rows : [];
 
-  // ids de originales que ya tienen una rectificativa
-  const refundedOriginalIds = new Set(
-    list
-      .map((r) => Number(r.idfacturarect || r._raw?.idfacturarect || 0))
-      .filter((n) => n > 0)
-  );
+  // Índice de devoluciones por id original
+  const refundIdx = buildRefundIndex(list);
 
-  // quitamos las originales que estén en ese set
-  return list.filter((r) => {
-    const id = Number(r.idfactura || r._raw?.idfactura || 0);
-    const isOriginalRefunded = refundedOriginalIds.has(id);
+  // Creamos salida: rectificativas siempre + originales sólo si queda pendiente
+  const out = [];
 
-    // OJO: no filtramos la rectificativa, solo la original
-    const isRectificativa =
-      Number(r.idfacturarect || r._raw?.idfacturarect || 0) > 0;
-    if (isRectificativa) return true;
+  for (const r of list) {
+    const raw = r._raw || {};
+    const id = Number(r.idfactura || raw.idfactura || 0);
+    const idOriginal = Number(r.idfacturarect || raw.idfacturarect || 0);
+    const isRectificativa = idOriginal > 0;
 
-    return !isOriginalRefunded;
+    if (isRectificativa) {
+      // La rectificativa SIEMPRE se muestra (en rojo ya la pintas)
+      out.push(r);
+      continue;
+    }
+
+    // Es original: calcular cuánto queda pendiente
+    const originalTotal = Number(r.total ?? raw.total ?? 0);
+    const ref = refundIdx.get(id);
+
+    if (!ref) {
+      // No tiene devoluciones -> se muestra normal
+      out.push(r);
+      continue;
+    }
+
+    const pending = round2(originalTotal - ref.refundedAbsTotal);
+
+    // Si pendiente <= 0 => devolución total -> ocultar original
+    if (pending <= 0.001) {
+      continue;
+    }
+
+    // Si pendiente > 0 => devolución parcial -> mostramos original pero con total pendiente
+    out.push({
+      ...r,
+      total: pending,
+      _pendingTotal: pending,
+      _hasPartialRefund: true,
+    });
+  }
+
+  return out;
+}
+
+// Devuelve un Map: idOriginal -> { refundedAbsTotal, rects: [] }
+function buildRefundIndex(list) {
+  const idx = new Map();
+
+  (Array.isArray(list) ? list : []).forEach((r) => {
+    const raw = r._raw || r;
+    const idOriginal = Number(r.idfacturarect || raw.idfacturarect || 0);
+    if (!(idOriginal > 0)) return; // solo rectificativas
+
+    const total = Number(r.total ?? raw.total ?? 0);
+    const refundedAbs = Math.abs(total);
+
+    const entry = idx.get(idOriginal) || { refundedAbsTotal: 0, rects: [] };
+    entry.refundedAbsTotal += refundedAbs;
+    entry.rects.push(r);
+    idx.set(idOriginal, entry);
   });
+
+  return idx;
+}
+
+// Redondeo a 2 decimales seguro para importes
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
 }
 
 async function fetchLineasFactura(idfactura) {
@@ -6764,6 +6912,59 @@ async function fetchLineasFactura(idfactura) {
   });
   const list = Array.isArray(data) ? data : [];
   return list.filter((l) => Number(l.idfactura) === Number(idfactura));
+}
+
+function normalizeRefundDesc(desc) {
+  return String(desc || "")
+    .trim()
+    .replace(/^DEV\s*-\s*/i, "") // quita "DEV - "
+    .replace(/\s+/g, " ");
+}
+
+function lineKeyForMatch(desc, pvpunitario, codimpuesto) {
+  const d = normalizeRefundDesc(desc).toLowerCase();
+  const p = Number(pvpunitario || 0).toFixed(6); // precisión estable
+  const c = String(codimpuesto || "")
+    .trim()
+    .toUpperCase();
+  return `${d}__${p}__${c}`;
+}
+
+async function fetchRectificativasDeFacturaOriginal(idfacturaOriginal) {
+  // Trae facturas rectificativas que apuntan a este original
+  const rows = await fetchApiResourceWithParams("facturaclientes", {
+    "filter[codserie]": "R",
+    "filter[idfacturarect]": idfacturaOriginal,
+    limit: 200,
+    order: "desc",
+  });
+
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function buildRefundedQtyMapForOriginal(idfacturaOriginal) {
+  const rects = await fetchRectificativasDeFacturaOriginal(idfacturaOriginal);
+
+  // Mapa: key -> qtyDevuelta (en positivo)
+  const refunded = {};
+
+  for (const r of rects) {
+    const rid = Number(r.idfactura || 0);
+    if (!rid) continue;
+
+    const lines = await fetchLineasFactura(rid);
+    for (const l of lines || []) {
+      const key = lineKeyForMatch(l.descripcion, l.pvpunitario, l.codimpuesto);
+
+      // En rectificativas tu cantidad va negativa. La pasamos a positivo
+      const q = Math.abs(Number(l.cantidad || 0));
+      if (!(q > 0)) continue;
+
+      refunded[key] = (refunded[key] || 0) + q;
+    }
+  }
+
+  return refunded;
 }
 
 async function imprimirFacturaPorId(facturaRow) {
@@ -7053,7 +7254,9 @@ function renderRefundLines() {
   wrap.innerHTML = "";
 
   refundState.lineas.forEach((l) => {
-    const max = Number(l.cantidad || 0);
+    const max = Number(
+      l._remainingQty != null ? l._remainingQty : l.cantidad || 0
+    );
     const id = Number(l.idlinea);
     const curr = Number(refundState.qtyByLineId[id] || 0);
 
@@ -7119,7 +7322,9 @@ function bindRefundLineClicks() {
     const line = refundState.lineas.find((x) => Number(x.idlinea) === id);
     if (!line) return;
 
-    const max = Number(line.cantidad || 0);
+    const max = Number(
+      line.__pendingQty != null ? line.__pendingQty : line.cantidad || 0
+    );
     let curr = Number(refundState.qtyByLineId[id] || 0);
 
     if (action === "plus") curr += 1;
@@ -7134,14 +7339,37 @@ function bindRefundLineClicks() {
 }
 
 function refundSelectAll() {
-  refundState.lineas.forEach((l) => {
-    refundState.qtyByLineId[Number(l.idlinea)] = Number(l.cantidad || 0);
+  refundState.lineas.forEach((line) => {
+    const max = Number(
+      line.__pendingQty != null ? line.__pendingQty : line.cantidad || 0
+    );
+    refundState.qtyByLineId[Number(line.idlinea)] = max;
   });
   renderRefundLines();
 }
+
 function refundSelectNone() {
   refundState.qtyByLineId = {};
   renderRefundLines();
+}
+
+function lineKeyFS(l) {
+  const desc = String(l.descripcion || "")
+    .trim()
+    .toLowerCase();
+  const pvp = Number(l.pvpunitario || 0).toFixed(4);
+  const iva = String(l.iva ?? extractTaxRateFromCode(l.codimpuesto) ?? "");
+  return `${desc}__${pvp}__${iva}`;
+}
+
+async function fetchRectificativasDeOriginal(idOriginal) {
+  const data = await fetchApiResourceWithParams("facturaclientes", {
+    "filter[codserie]": "R",
+    "filter[idfacturarect]": idOriginal,
+    limit: 200,
+    order: "desc",
+  });
+  return Array.isArray(data) ? data : [];
 }
 
 async function openRefundForFactura(facturaRow) {
@@ -7153,9 +7381,61 @@ async function openRefundForFactura(facturaRow) {
 
   const lineas = await fetchLineasFactura(facturaRow.idfactura);
 
+  // ✅ NUEVO: map de cantidades ya devueltas
+  let refundedMap = {};
+  try {
+    refundedMap = await buildRefundedQtyMapForOriginal(facturaRow.idfactura);
+  } catch (e) {
+    console.warn("No se pudo calcular devoluciones previas:", e?.message || e);
+    refundedMap = {};
+  }
+
+  // ✅ NUEVO: recalcular “cantidad pendiente” y filtrar líneas agotadas
+  const lineasPendientes = (lineas || [])
+    .map((l) => {
+      const key = keyForRefundMatch(
+        l.descripcion,
+        l.pvpunitario,
+        l.codimpuesto
+      );
+      const sold = Number(l.cantidad || 0);
+      const already = Number(refundedMap[key] || 0);
+      const pending = Math.max(0, sold - already);
+
+      return {
+        ...l,
+        _remainingQty: pending, // ✅ esto lo usa renderRefundLines
+        __pendingQty: pending,
+        __alreadyRefunded: already,
+      };
+    })
+    .filter((l) => Number(l._remainingQty || 0) > 0);
+
   refundState.factura = facturaRow;
-  refundState.lineas = lineas;
-  refundState.qtyByLineId = {}; // empieza en 0
+  refundState.lineas = lineasPendientes;
+
+  // ✅ importante: empezar en 0 sobre lo pendiente
+  refundState.qtyByLineId = {};
+
+  // ✅ Traer todas las rectificativas de este ticket y sumar cantidades ya devueltas por "clave"
+  let refundedByKey = {};
+  try {
+    const rects = await fetchRectificativasDeOriginal(facturaRow.idfactura);
+
+    for (const r of rects) {
+      const rectLines = await fetchLineasFactura(r.idfactura);
+      (rectLines || []).forEach((rl) => {
+        const k = lineKeyFS(rl);
+        const q = Math.abs(Number(rl.cantidad || 0));
+        refundedByKey[k] = (refundedByKey[k] || 0) + q;
+      });
+    }
+  } catch (e) {
+    console.warn(
+      "No se pudieron cargar rectificativas para calcular restante:",
+      e
+    );
+  }
 
   // Cabecera
   const n = document.getElementById("refundTicketNum");
