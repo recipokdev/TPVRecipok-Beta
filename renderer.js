@@ -156,6 +156,7 @@ const sumCashIncomeEl = document.getElementById("sumCashIncome");
 const sumMovementsEl = document.getElementById("sumMovements");
 const sumExpectedCashEl = document.getElementById("sumExpectedCash");
 const sumCountedCashEl = document.getElementById("sumCountedCash");
+const sumDifferenceEl = document.getElementById("sumDifference");
 const sumTotalSalesEl = document.getElementById("sumTotalSales");
 
 // Cliente actual (input del carrito)
@@ -354,6 +355,16 @@ function renderCategories() {
       sub.style.display = "none";
     }
   }
+}
+
+function formatPayLabel(descripcion, codpago) {
+  const base = (descripcion || codpago || "").trim();
+  const cod = String(codpago || "")
+    .trim()
+    .toUpperCase();
+  const n = Number(cashSession?.payMethodCounts?.[cod] || 0);
+
+  return n > 1 ? `${base} (${n})` : base;
 }
 
 // ===== Productos =====
@@ -718,18 +729,16 @@ async function openLoginModal() {
   // ✅ usuario seleccionado por botones
   let selectedUser = "";
 
-  // Helper: pintar botones (por ahora desde operators.json o lista estática)
-  // IMPORTANTE: Aquí luego lo conectamos al endpoint que devuelva los nicks desde FacturaScripts.
+  // 1) Helper para pintar botones
   function renderUserButtons(userList) {
     usersBar.innerHTML = "";
     userList.forEach((u) => {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "agent-btn"; // usa tu clase si ya existe
+      btn.className = "agent-btn";
       btn.textContent = u;
       btn.onclick = () => {
         selectedUser = u;
-        // marcar seleccionado
         [...usersBar.querySelectorAll("button")].forEach((b) =>
           b.classList.remove("selected")
         );
@@ -741,8 +750,36 @@ async function openLoginModal() {
     });
   }
 
-  // ✅ Lista temporal (pon aquí tus usuarios mientras conectamos al servidor)
-  renderUserButtons(["admin", "demo"]); // <- cámbialo cuando tengas el endpoint
+  // 2) Cargar usuarios desde FS
+  async function fetchFsUsers() {
+    const cfg = window.RECIPOK_API || {};
+    if (!cfg.baseUrl || !cfg.apiKey) return [];
+
+    const url = `${cfg.baseUrl.replace(/\/+$/, "")}/users?limit=200`;
+
+    const res = await fetch(url, {
+      headers: { Accept: "application/json", Token: cfg.apiKey },
+      cache: "no-store",
+    });
+
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !Array.isArray(data)) return [];
+
+    return data
+      .filter((u) => u && u.enabled === true && u.nick)
+      .map((u) => String(u.nick).trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, "es"));
+  }
+
+  // 3) Pintar botones
+  try {
+    const users = await fetchFsUsers();
+    renderUserButtons(users.length ? users : ["admin"]);
+  } catch (e) {
+    console.warn("No pude cargar /users, fallback:", e);
+    renderUserButtons(["admin"]);
+  }
 
   // si solo hay 1, lo auto-seleccionamos
   const firstBtn = usersBar.querySelector("button");
@@ -1102,7 +1139,7 @@ function numPadConfirm() {
       if (numPadMode === "price") {
         const item = cart.find((c) => c.id === numPadTargetItemId);
         const current = item
-          ? getEffectiveUnitGross(item)
+          ? getUnitGross(item)
           : numPadOriginalUnitGross || 0;
         numPadOnConfirm(current);
       } else {
@@ -1115,7 +1152,7 @@ function numPadConfirm() {
 
   // Eval simple de expresiones (si ya lo tienes, reutiliza tu versión)
   const cleaned = raw.replace(/\s+/g, "");
-  if (!/^[0-9+\-*/.]+$/.test(cleaned)) {
+  if (!/^[0-9+\-*/().]+$/.test(cleaned)) {
     toast("Expresión no válida", "warn", "Teclado");
     return;
   }
@@ -1206,17 +1243,6 @@ if (numPadOverlay) {
       numPadAddDigit(key);
     } else if (key === ".") {
       numPadAddDot();
-      // permitir punto solo si no hay ya un punto en el último número
-      // (simple: evitar ".." y "1.2.3")
-      const lastChunk = numPadCurrentValue.split(/[+\-*/]/).pop() || "";
-      if (lastChunk.includes(".")) return;
-      if (numPadOverwriteNextDigit) {
-        numPadCurrentValue = "0.";
-        numPadOverwriteNextDigit = false;
-      } else {
-        numPadCurrentValue += ".";
-      }
-      updateNumPadDisplay();
     } else if (key === "+" || key === "-" || key === "*" || key === "/") {
       numPadAddOperator(key);
     } else if (key === "back") {
@@ -1523,21 +1549,22 @@ function getCartTotal(items) {
 function registerPaymentUsage(code, amount, label) {
   if (!code) return;
 
-  const key = String(code).trim() || "DESCONOCIDO";
-  if (!cashSession.paymentsByMethod) {
-    cashSession.paymentsByMethod = {};
-  }
+  const key = String(code).trim().toUpperCase() || "DESCONOCIDO";
+
+  if (!cashSession.paymentsByMethod) cashSession.paymentsByMethod = {};
 
   const entry = cashSession.paymentsByMethod[key] || {
     code: key,
-    label: label || key,
+    label: label ? String(label).trim() : key,
     total: 0,
     count: 0,
   };
 
-  const inc = Number(amount) || 0;
-  entry.total += inc;
-  entry.count += 1;
+  // si llega un label mejor, lo guardamos
+  if (label && String(label).trim()) entry.label = String(label).trim();
+
+  entry.total += Number(amount) || 0;
+  entry.count += 1; // ✅ CLAVE: incrementa “veces usado”
 
   cashSession.paymentsByMethod[key] = entry;
 }
@@ -2083,6 +2110,9 @@ function updateCloseSummary(countedTotal) {
 
   const totalSales = cashSession.totalSales || 0;
 
+  // ✅ NUEVO: diferencia (conteo - esperado)
+  const diff = (Number(countedTotal) || 0) - (Number(expectedCash) || 0);
+
   if (sumOpeningEl)
     sumOpeningEl.textContent = opening.toFixed(2).replace(".", ",") + " €";
   if (sumCashIncomeEl)
@@ -2099,6 +2129,13 @@ function updateCloseSummary(countedTotal) {
   if (sumTotalSalesEl)
     sumTotalSalesEl.textContent =
       totalSales.toFixed(2).replace(".", ",") + " €";
+
+  // ✅ pintar diferencia con signo
+  if (sumDifferenceEl) {
+    const sign = diff < 0 ? "-" : "";
+    sumDifferenceEl.textContent =
+      sign + Math.abs(diff).toFixed(2).replace(".", ",") + " €";
+  }
 
   renderPayMethodsSummary();
 }
@@ -2161,12 +2198,15 @@ function renderPayMethodsSummary() {
   );
 
   entries.forEach((pm) => {
-    const label = pm.label || pm.code;
+    const baseLabel = pm.label || pm.code;
+
+    const count = Number(pm.count || 0); // ✅ ESTE ES EL CAMPO REAL
+    const label = count > 1 ? `${baseLabel} (${count})` : baseLabel;
+
     const total = Number(pm.total) || 0;
 
     const card = document.createElement("div");
     card.className = "cash-pay-card";
-
     card.innerHTML = `
       <div class="cash-pay-card-amount">${eur(total)}</div>
       <div class="cash-pay-card-label">${escapeHtml(label)}</div>
@@ -2275,6 +2315,7 @@ function cashResetUIForOpening() {
 
 // ---- Apertura / cierre de caja ----
 function openCashOpenDialog(mode = "open") {
+  setCashDialogMode(mode);
   if (LOGIN_ACTIVE) return;
   if (!cashOpenOverlay) return;
   if (!currentTerminal) {
@@ -2526,7 +2567,43 @@ function syncCashInput(visibleInput) {
   updateCashOpenTotal();
 }
 
+function ensureCashSessionCounters() {
+  if (!cashSession) cashSession = {};
+  if (!cashSession.payMethodCounts) cashSession.payMethodCounts = {}; // { CONT: 2, BIZU: 1, ... }
+}
+
+function registerPayMethodUsageForTicket(pagos) {
+  if (!Array.isArray(pagos) || !pagos.length) return;
+
+  if (!cashSession.paymentsByMethod) cashSession.paymentsByMethod = {};
+
+  // 1 uso por método por ticket (aunque el ticket tenga 2 líneas raras del mismo método)
+  const unique = new Set(
+    pagos
+      .map((p) =>
+        String(p?.codpago || "")
+          .trim()
+          .toUpperCase()
+      )
+      .filter(Boolean)
+  );
+
+  unique.forEach((key) => {
+    const entry = cashSession.paymentsByMethod[key] || {
+      code: key,
+      label: key,
+      total: 0,
+      count: 0,
+    };
+
+    entry.count = Number(entry.count) || 0;
+
+    cashSession.paymentsByMethod[key] = entry;
+  });
+}
+
 async function confirmCashOpening() {
+  ensureCashSessionCounters();
   cashSession.open = true;
   cashSession.openedAt = new Date().toISOString();
 
@@ -2602,6 +2679,11 @@ async function confirmCashClosing() {
   mainUiRendered = false;
 
   console.log("Caja cerrada:", cashSession);
+  try {
+    localStorage.removeItem("tpv_remoteCajaId");
+  } catch (e) {}
+  cashSession.remoteCajaId = null;
+
   const printBtn = document.getElementById("printTicketBtn");
   if (printBtn) {
     printBtn.disabled = true;
@@ -2746,17 +2828,46 @@ async function fetchFormasPagoActivas(opts = {}) {
       }))
       .filter((x) => x.codpago);
 
+    // ✅ Detectar cuáles son "efectivo/contado" desde la API (sin hardcodear códigos)
+    try {
+      window.__CASH_CODPAGOS__ = list
+        .filter((f) => {
+          const desc = String(f.descripcion || "").toLowerCase();
+          return (
+            desc.includes("contado") ||
+            desc.includes("efectivo") ||
+            desc.includes("cash")
+          );
+        })
+        .map((f) =>
+          String(f.codpago || "")
+            .trim()
+            .toUpperCase()
+        );
+    } catch (e) {
+      window.__CASH_CODPAGOS__ = [];
+    }
+
     // Guardar caché SIEMPRE que haya algo válido
     if (list.length) savePayMethodsCache(list);
+
+    // ✅ construir lista de codpago que son EFECTIVO, basado en /formapagos
+    CASH_CODPAGOS = buildCashCodpagosFromFormapagos(list);
 
     return list;
   } catch (e) {
     // Fallback: si falla online, usamos caché
     const cached = loadPayMethodsCache();
-    if (Array.isArray(cached) && cached.length) return cached;
+    if (Array.isArray(cached) && cached.length) {
+      CASH_CODPAGOS = buildCashCodpagosFromFormapagos(cached);
+      return cached;
+    }
 
-    // Último fallback: efectivo
-    return [{ codpago: "CONT", descripcion: "Al contado", imprimir: true }];
+    const fallback = [
+      { codpago: "CONT", descripcion: "Al contado", imprimir: true },
+    ];
+    CASH_CODPAGOS = buildCashCodpagosFromFormapagos(fallback);
+    return fallback;
   }
 }
 
@@ -3002,25 +3113,62 @@ async function apiOpenCashInFS() {
     idtpv: Number(currentTerminal.id),
     fechaini: nowFs(),
     dineroini: Number(cashSession.openingTotal || 0),
-    nick: getLoginUser(), // ✅
+    nick: getLoginUser(),
     observaciones: "",
   };
 
   const resp = await apiWrite("tpvcajas", "POST", payload);
 
+  // ✅ FacturaScripts puede devolver el id en distintos formatos
   const doc = resp?.doc || resp?.data || resp;
-  const remoteId = doc?.idcaja ?? null;
+
+  const remoteId =
+    doc?.idcaja ??
+    doc?.idCaja ??
+    doc?.idtpvcaja ??
+    doc?.idtpvCaja ??
+    doc?.id ??
+    resp?.idcaja ??
+    resp?.id ??
+    null;
+
+  if (!remoteId) {
+    console.warn("⚠️ No pude detectar el id de caja en la respuesta:", resp);
+  }
 
   cashSession.remoteCajaId = remoteId;
+
+  // ✅ persiste para poder cerrar aunque se recargue la app
+  try {
+    localStorage.setItem("tpv_remoteCajaId", String(remoteId || ""));
+  } catch (e) {}
+
   return resp;
 }
+
+try {
+  const saved = localStorage.getItem("tpv_remoteCajaId");
+  if (saved && !cashSession.remoteCajaId) cashSession.remoteCajaId = saved;
+} catch (e) {}
 
 async function apiCloseCashInFS() {
   if (TPV_STATE.offline || TPV_STATE.locked) return null;
 
-  const remoteId = cashSession.remoteCajaId;
+  let remoteId = cashSession.remoteCajaId;
+
+  // ✅ si no tenemos id, intentamos encontrar la caja abierta en FS
   if (!remoteId) {
-    console.warn("No hay cashSession.remoteCajaId: no cierro caja en FS.");
+    remoteId = await findOpenCajaIdInFS();
+    if (remoteId) {
+      cashSession.remoteCajaId = remoteId;
+      try {
+        localStorage.setItem("tpv_remoteCajaId", String(remoteId));
+      } catch (e) {}
+    }
+  }
+
+  if (!remoteId) {
+    console.warn("No pude encontrar una caja abierta para cerrar en FS.");
     return null;
   }
 
@@ -3050,6 +3198,33 @@ async function apiCloseCashInFS() {
   };
 
   return await apiWrite(`tpvcajas/${remoteId}`, "PUT", payload);
+}
+
+async function findOpenCajaIdInFS() {
+  const cfg = window.RECIPOK_API || {};
+  if (!cfg.baseUrl || !cfg.apiKey) return null;
+  if (!currentTerminal?.id) return null;
+
+  const base = cfg.baseUrl.replace(/\/+$/, "");
+  const url = new URL(`${base}/tpvcajas`);
+
+  // filtros típicos de FacturaScripts API
+  url.searchParams.set("limit", "50");
+  url.searchParams.set("order", "desc");
+  url.searchParams.set("filter[idtpv]", String(currentTerminal.id));
+  url.searchParams.set("filter[nick]", String(getLoginUser() || ""));
+
+  const res = await fetch(url.toString(), {
+    headers: { Accept: "application/json", Token: cfg.apiKey },
+    cache: "no-store",
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !Array.isArray(data)) return null;
+
+  // buscamos una caja SIN fechafin (abierta)
+  const open = data.find((c) => !c.fechafin);
+  return open?.idcaja ?? open?.id ?? null;
 }
 
 // Botón abrir/cerrar caja (header "Caja")
@@ -4070,6 +4245,15 @@ async function createTicketInFacturaScripts(ticketPayload) {
   bodyParams.append("codcliente", ticketPayload.codcliente);
   bodyParams.append("lineas", JSON.stringify(ticketPayload.lineas));
 
+  // Vincular a TPV y caja (si el endpoint lo soporta)
+  if (ticketPayload.idtpv)
+    bodyParams.append("idtpv", String(ticketPayload.idtpv));
+  if (ticketPayload.idcaja)
+    bodyParams.append("idcaja", String(ticketPayload.idcaja));
+
+  // Algunos setups usan estos flags
+  bodyParams.append("tpv_venta", "1");
+
   // Intento de registrar forma de pago principal en FacturaScripts (si el endpoint lo soporta)
   if (ticketPayload.codpago) {
     bodyParams.append("codpago", String(ticketPayload.codpago));
@@ -4460,11 +4644,7 @@ async function printTicket(ticket) {
   const finalHtml = "<!doctype html>\n" + doc.documentElement.outerHTML;
 
   const isCash = Array.isArray(ticket.pagos)
-    ? ticket.pagos.some(
-        (p) =>
-          (p.codpago || "").toLowerCase() === "cash" ||
-          (p.descripcion || "").toLowerCase().includes("efect")
-      )
+    ? ticket.pagos.some(isCashPago)
     : true;
 
   const res = await window.TPV_PRINT.printTicket({
@@ -4554,6 +4734,16 @@ async function onPayButtonClick() {
     // 2) Construimos payload factura
     const ticketPayload = buildTicketPayloadFromCart();
 
+    // ✅ VINCULAR SIEMPRE A TPV y CAJA ABIERTA
+    ticketPayload.idtpv = Number(currentTerminal?.id || 0) || null;
+    ticketPayload.idcaja = Number(cashSession?.remoteCajaId || 0) || null;
+
+    if (!ticketPayload.idtpv || !ticketPayload.idcaja) {
+      throw new Error(
+        "No hay caja abierta en FacturaScripts (idtpv/idcaja vacíos). Abre caja antes de cobrar."
+      );
+    }
+
     // Número 2 y Serie desde el modal
     ticketPayload.numero2 = payResult.numero || "";
     ticketPayload.serie = payResult.serie || "";
@@ -4563,6 +4753,13 @@ async function onPayButtonClick() {
     // - si hay varios, marcamos como "Mixto" para el ticket, pero para FS enviamos el primero
     const pagos = payResult.pagos || [];
     const primary = pagos[0];
+
+    // ✅ Para que FacturaScripts compute “Ingresos en efectivo”
+    const tpv_efectivo = pagos
+      .filter(isCashPago)
+      .reduce((s, p) => s + moneyToNumber(p?.importe), 0);
+
+    const tpv_cambio = moneyToNumber(payResult?.cambio || 0);
 
     // para ticket (impresión)
     if (pagos.length === 1) {
@@ -4598,6 +4795,8 @@ async function onPayButtonClick() {
     if (!sendResult.ok && sendResult.queued) {
       // 🔢 Registrar uso de métodos de pago en la sesión de caja
       registerPaymentsForCurrentSession(pagos);
+      // y en el ticket
+      registerPayMethodUsageForTicket(pagos);
       try {
         // Ticket imprimible mínimo offline (SIN romper nunca)
         lastTicket = buildOfflineTicketPrintData(
@@ -4675,15 +4874,18 @@ async function onPayButtonClick() {
         idtpv: currentTerminal?.id || "",
         codalmacen: currentTerminal?.codalmacen || "",
         codagente: currentAgent?.codagente || "",
+
+        // ✅ CLAVE para “Ingresos en efectivo” en tpvcajas
+        tpv_efectivo: Number(tpv_efectivo.toFixed(2)),
+        tpv_cambio: Number(tpv_cambio.toFixed(2)),
       });
     }
 
     // ✅ Crear 1 recibo por cada método de pago usado (pago mixto)
     if (idfactura && codcliente) {
       const today = new Date().toISOString().slice(0, 10);
-      const pagos = payResult.pagos || [];
-
-      for (const p of pagos) {
+      const pagosRecibos = payResult.pagos || [];
+      for (const p of pagosRecibos) {
         const importe = Number(Number(p.importe || 0).toFixed(2));
         if (!(importe > 0)) continue;
 
@@ -4692,7 +4894,8 @@ async function onPayButtonClick() {
           codcliente,
           codpago: p.codpago,
           importe,
-          fechaPago: today,
+          fechapago: today,
+          fecha: today,
           idempresa,
           codigofactura,
           coddivisa,
@@ -4712,6 +4915,8 @@ async function onPayButtonClick() {
     }
     // 🔢 Registrar uso de métodos de pago en la sesión de caja
     registerPaymentsForCurrentSession(pagos);
+    // y en el ticket
+    registerPayMethodUsageForTicket(pagos);
     if (idfactura) {
       try {
         const fc = await fetchFacturaClienteById(idfactura);
@@ -4726,6 +4931,11 @@ async function onPayButtonClick() {
         );
       }
     }
+
+    await apiUpdateCajaAfterSale({
+      totalVenta: totalCart,
+      pagos: payResult?.pagos || [],
+    });
 
     // 4) Guardamos ticket para imprimir
     lastTicket = buildTicketPrintData(apiResponse, ticketPayload, cartSnapshot);
@@ -4759,9 +4969,6 @@ async function onPayButtonClick() {
     if (hasCash) {
       await openDrawerNow();
     }
-
-    cashSession.cashSalesTotal = (cashSession.cashSalesTotal || 0) + efectivo;
-    cashSession.totalSales = (cashSession.totalSales || 0) + totalVenta;
 
     // 6) Vaciar carrito
     cart = [];
@@ -4798,6 +5005,124 @@ async function onPayButtonClick() {
   }
 }
 
+function calcExpectedCash(opening, ingresos, totalmovi) {
+  return (
+    (Number(opening) || 0) + (Number(ingresos) || 0) + (Number(totalmovi) || 0)
+  );
+}
+
+function moneyToNumber(v) {
+  // Acepta: 2.5, "2.5", "2,50", "2,50 €", "", null...
+  if (typeof v === "number") return isNaN(v) ? 0 : v;
+  const s = String(v ?? "")
+    .trim()
+    .replace(/\s/g, "")
+    .replace("€", "")
+    .replace(/\./g, "") // por si viene "1.234,56"
+    .replace(",", "."); // coma decimal a punto
+  const n = Number(s);
+  return isNaN(n) ? 0 : n;
+}
+
+function isCashPago(p) {
+  const code = String(p?.codpago || "")
+    .trim()
+    .toUpperCase();
+  const desc = String(p?.descripcion || "")
+    .trim()
+    .toLowerCase();
+
+  const set = Array.isArray(window.__CASH_CODPAGOS__)
+    ? window.__CASH_CODPAGOS__
+    : [];
+
+  // 1) si el API ya marcó cuáles son cash, usamos eso
+  if (set.length && set.includes(code)) return true;
+
+  // 2) fallback por descripción (por si no cargó formapagos aún)
+  return (
+    desc.includes("contado") ||
+    desc.includes("efectivo") ||
+    desc.includes("cash")
+  );
+}
+
+function moneyToNumber(v) {
+  if (typeof v === "number") return isNaN(v) ? 0 : v;
+  if (v == null) return 0;
+  // admite "2,50", "2.50", " 2,50 € "
+  const s = String(v)
+    .trim()
+    .replace("€", "")
+    .replace(/\s/g, "")
+    .replace(",", ".");
+  const n = Number(s);
+  return isNaN(n) ? 0 : n;
+}
+
+// payResult = lo que te devuelve crearFacturaCliente (o el endpoint que uses)
+// totalVenta = total bruto del ticket
+// pagos = array de pagos [{codpago, importe, descripcion}]
+async function apiUpdateCajaAfterSale({ totalVenta, pagos }) {
+  if (TPV_STATE.offline || TPV_STATE.locked) return;
+  const remoteId = cashSession.remoteCajaId;
+  if (!remoteId) return;
+
+  // 1) Actualiza acumulados LOCALES
+  cashSession.totalSales =
+    (Number(cashSession.totalSales) || 0) + (Number(totalVenta) || 0);
+  cashSession.numtickets = (Number(cashSession.numtickets) || 0) + 1;
+
+  const pagosArr = Array.isArray(pagos) ? pagos : [];
+  const contado = pagosArr
+    .filter(isCashPago)
+    .reduce((s, p) => s + moneyToNumber(p?.importe), 0);
+
+  // ✅ Si por cualquier motivo el set no está listo, al menos CONT siempre cuenta
+  if (
+    !CASH_CODPAGOS ||
+    !(CASH_CODPAGOS instanceof Set) ||
+    CASH_CODPAGOS.size === 0
+  ) {
+    CASH_CODPAGOS = new Set(["CONT"]);
+  } else {
+    // Aseguramos CONT siempre
+    CASH_CODPAGOS.add("CONT");
+  }
+
+  // DEBUG (temporal): verifica que aquí suma
+  console.log(
+    "[CAJA] pagos:",
+    pagosArr,
+    "CASH_CODPAGOS:",
+    Array.from(CASH_CODPAGOS),
+    "contado:",
+    contado
+  );
+
+  cashSession.cashSalesTotal =
+    (Number(cashSession.cashSalesTotal) || 0) + contado;
+
+  // 2) Calcula totalcaja esperado
+  const opening = Number(cashSession.openingTotal || 0);
+  const totalmovi = Number(cashSession.cashMovementsTotal || 0);
+  const ingresos = Number(cashSession.cashSalesTotal || 0);
+  const totalcaja = calcExpectedCash(opening, ingresos, totalmovi);
+
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+  const payload = {
+    ingresos: round2(ingresos),
+    totalmovi: round2(totalmovi),
+    totalcaja: round2(totalcaja),
+    totaltickets: round2(Number(cashSession.totalSales || 0)),
+    numtickets: Number(cashSession.numtickets || 0),
+    nick: getLoginUser(),
+  };
+
+  await apiWrite(`tpvcajas/${remoteId}`, "PUT", payload);
+}
+
 // ===== Botón "Eliminar todo" =====
 const clearBtn = document.getElementById("clearCartBtn");
 if (clearBtn) {
@@ -4826,6 +5151,49 @@ if (printTicketBtn) {
 
     printTicket(lastTicket);
   };
+}
+
+// ===== EFECTIVO desde /formapagos =====
+let CASH_CODPAGOS = new Set();
+
+function buildCashCodpagosFromFormapagos(list) {
+  const s = new Set();
+
+  (list || []).forEach((fp) => {
+    const cod = String(fp.codpago || "").trim();
+    const desc = String(fp.descripcion || "")
+      .trim()
+      .toLowerCase();
+
+    // regla automática por descripción
+    if (
+      desc.includes("contado") ||
+      desc.includes("efectivo") ||
+      desc.includes("cash")
+    ) {
+      if (cod) s.add(cod);
+    }
+  });
+
+  // fallback seguro: si existe CONT, lo añadimos
+  if (
+    (list || []).some(
+      (x) =>
+        String(x.codpago || "")
+          .trim()
+          .toUpperCase() === "CONT"
+    )
+  ) {
+    s.add("CONT");
+  }
+
+  return s;
+}
+
+function parseMoney(n) {
+  if (typeof n === "string") n = n.replace(",", ".");
+  const x = Number(n);
+  return isNaN(x) ? 0 : x;
 }
 
 // ===== Modal Cobrar (UI tipo FacturaScripts) =====
@@ -7030,10 +7398,31 @@ async function startOnlineMonitor() {
    ============================================================= */
 async function sendOrQueueFactura(payload) {
   try {
-    const r = await createTicketInFacturaScripts(payload); // tu POST actual
+    const r = await createTicketInFacturaScripts(payload); // crea factura
+
+    // ✅ Crear recibo (si procede)
+    const doc = r?.doc || r?.factura || r;
+    const idfactura = doc?.idfactura;
+
+    // Solo si tenemos factura y viene pagada/importe
+    if (idfactura && (doc?.pagada === true || doc?.pagada === 1)) {
+      const codpago = doc?.codpago || payload?.codpago || "CONT";
+      const importe = Number(doc?.total ?? payload?._payTotal ?? 0);
+
+      // fecha pago: FacturaScripts suele usar dd-mm-YYYY en tu API
+      const fechapago = doc?.fecha || new Date().toISOString().slice(0, 10);
+
+      await createReciboCliente({
+        idfactura,
+        codcliente: doc?.codcliente || payload?.codcliente,
+        codpago,
+        importe,
+        fechapago,
+      });
+    }
+
     return { ok: true, remote: r };
   } catch (e) {
-    // detecta “error de red” vs “error de validación”
     const msg = e?.message || String(e);
     const isNetwork =
       msg.includes("Failed to fetch") ||
@@ -7047,7 +7436,7 @@ async function sendOrQueueFactura(payload) {
         localId,
         payload,
         post: {
-          pagos: payload?._payBreakdown || [], // ver nota abajo
+          pagos: payload?._payBreakdown || [],
           terminal: currentTerminal
             ? { id: currentTerminal.id, codalmacen: currentTerminal.codalmacen }
             : null,
@@ -7061,7 +7450,7 @@ async function sendOrQueueFactura(payload) {
         codigo: "OFF-" + localId.slice(0, 6).toUpperCase(),
         idfactura: null,
         nombrecliente: "Venta en cola",
-        total: Number(payload?.total || 0),
+        total: Number(getCartTotal(cart) || 0),
         codpago: String(payload?.codpago || "—"),
         fecha: new Date().toISOString().slice(0, 10),
         hora: new Date().toTimeString().slice(0, 8),
@@ -7071,7 +7460,6 @@ async function sendOrQueueFactura(payload) {
       return { ok: false, queued: true, localId };
     }
 
-    // si es error lógico (400), mejor NO encolar
     return { ok: false, queued: false, error: msg };
   }
 }
@@ -7140,7 +7528,7 @@ async function syncQueueNow() {
                     codcliente: fc.codcliente,
                     codpago: p.codpago,
                     importe,
-                    fechaPago: today,
+                    fechapago: today,
                     idempresa: fc.idempresa,
                     codigofactura: fc.codigo || fc.codigofactura || "",
                     coddivisa: fc.coddivisa,
@@ -7521,7 +7909,7 @@ async function apiCreateCashMovementInFS({ amount, type, reason }) {
   return resp;
 }
 
-// Actualizar totales de la caja abierta en FacturaScripts
+// Actualizar totales de la caja abierta en FacturaScripts (CORREGIDO)
 async function syncFsCajaTotalsRealtime() {
   if (TPV_STATE.offline || TPV_STATE.locked) return;
 
@@ -7542,25 +7930,36 @@ async function syncFsCajaTotalsRealtime() {
     return;
   }
 
-  // ⚠️ Ajusta estos campos a los que realmente use tu FS en la tabla tpv_cajas
   const totalMovimientos = Number(cashSession.cashMovementsTotal || 0);
   const dineroInicial = Number(
     cashSession.openingTotal || cashSession.initialCash || 0
   );
-  const totalEnCaja = dineroInicial + totalMovimientos;
+  const ingresos = Number(cashSession.cashSalesTotal || 0);
+
+  // ✅ total en caja esperado = inicial + ingresos + movimientos
+  const totalEnCaja = dineroInicial + ingresos + totalMovimientos;
 
   const payload = {
-    idcaja: Number(fsBoxId),
     dineroini: dineroInicial,
+    ingresos: ingresos,
     totalmovi: totalMovimientos,
     totalcaja: totalEnCaja,
-    // ...y los demás campos que quieras mantener (ingresos, totaltickets…)
+
+    // opcional:
+    // totaltickets: Number(cashSession.totalSales || 0),
+    // numtickets: Number(cashSession.numtickets || 0),
+    // nick: getLoginUser(),
   };
 
-  console.log("Actualizando totales de caja en FacturaScripts:", payload);
+  console.log(
+    "Actualizando totales de caja en FacturaScripts:",
+    fsBoxId,
+    payload
+  );
 
   try {
-    await apiWrite("tpvcajas", "PUT", payload);
+    // ✅ IMPORTANTE: PUT al registro concreto
+    await apiWrite(`tpvcajas/${fsBoxId}`, "PUT", payload);
   } catch (e) {
     console.warn("Error al actualizar totales de caja en FS:", e);
   }
@@ -7662,4 +8061,34 @@ async function apiReadCurrentCaja() {
   const resp = await apiRead(`tpvcajas/${remoteId}`);
   const doc = resp?.doc || resp?.data || resp || null;
   return doc;
+}
+
+function parseMoney(n) {
+  // admite "3,80", "3.80", 3.8
+  if (typeof n === "string") n = n.replace(",", ".");
+  const x = Number(n);
+  return isNaN(x) ? 0 : x;
+}
+
+function setCashDialogMode(mode) {
+  const summary = document.querySelector(".cash-summary-page"); // 6 KPIs
+  const bigTotal = document.querySelector(".cash-total-big"); // Dinero Asignado
+  const closeSummary = document.getElementById("cashCloseSummary"); // formas pago
+
+  const title = document.getElementById("cashDialogTitle");
+  const okBtn = document.getElementById("cashOpenOkBtn");
+
+  const isOpenMode = mode === "open"; // apertura
+
+  // Apertura => SOLO Dinero Asignado
+  if (summary) summary.classList.toggle("hidden", isOpenMode);
+  if (bigTotal) bigTotal.classList.toggle("hidden", !isOpenMode);
+
+  // Cierre => mostrar resumen formas de pago (si existe)
+  if (closeSummary) closeSummary.style.display = isOpenMode ? "none" : "block";
+
+  // Textos
+  if (title)
+    title.textContent = isOpenMode ? "Apertura de caja" : "Cierre de caja";
+  if (okBtn) okBtn.textContent = isOpenMode ? "Abrir caja" : "Cerrar caja";
 }
