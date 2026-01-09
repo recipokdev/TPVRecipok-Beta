@@ -465,44 +465,110 @@ if (searchClearBtn) {
 }
 
 // ===== Carrito =====
-function addToCart(product, quantity = 1) {
-  const existing = cart.find((c) => c.id === product.id);
+function makeLineId() {
+  return "L" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function buildCartLine(product, quantity) {
   const taxRate = getTaxRateForProduct(product);
   const priceNet = product.price || 0;
   const priceGross = priceNet * (1 + taxRate / 100);
 
-  if (existing) {
-    existing.qty += quantity;
-  } else {
-    cart.push({
-      id: product.id,
-      name: product.name,
-      secondaryName: product.secondaryName || "",
-      price: priceNet, // neto original
-      taxRate,
-      grossPrice: priceGross, // bruto original (ya lo usas)
-      codimpuesto: product.codimpuesto || null,
-      qty: quantity,
+  return {
+    _lineId: makeLineId(),
+    id: product.id,
+    name: product.name,
+    secondaryName: product.secondaryName || "",
+    price: priceNet,
+    taxRate,
+    grossPrice: priceGross,
+    codimpuesto: product.codimpuesto || null,
+    qty: quantity,
 
-      // ✅ NUEVO (para editar precio SOLO en esta venta)
-      originalNetPrice: priceNet,
-      originalGrossPrice: priceGross,
-      grossPriceOverride: null, // si no es null, manda sobre grossPrice
-    });
+    originalNetPrice: priceNet,
+    originalGrossPrice: priceGross,
+    grossPriceOverride: null,
+  };
+}
+
+function addToCart(product, quantity = 1) {
+  // ✅ CHECK = separar -> SIEMPRE línea nueva
+  if (isGroupLinesEnabled()) {
+    cart.push(buildCartLine(product, quantity));
+    renderCart();
+    return;
   }
+
+  // ✅ UNCHECK = sumar -> busca línea existente y suma
+  const existing = cart.find((c) => c.id === product.id);
+
+  if (existing) existing.qty += quantity;
+  else cart.push(buildCartLine(product, quantity));
+
   renderCart();
 }
 
-function updateCartItemQuantity(productId, newQty) {
-  const item = cart.find((c) => c.id === productId);
+function updateCartItemQuantity(lineId, newQty) {
+  const item = cart.find((c) => c._lineId === lineId);
   if (!item) return;
 
   if (newQty <= 0) {
-    cart = cart.filter((c) => c.id !== productId);
+    cart = cart.filter((c) => c._lineId !== lineId);
   } else {
     item.qty = newQty;
   }
   renderCart();
+}
+
+function round2(n) {
+  const v = Number(n);
+  if (!isFinite(v)) return 0;
+  return Math.round(v * 100) / 100;
+}
+
+function getOriginalUnitGross(item) {
+  // Usa el mismo criterio que ya estabas usando en el click del botón precio
+  return (
+    Number(item.originalGrossPrice ?? item.grossPrice ?? item.price ?? 0) || 0
+  );
+}
+
+function isPriceModified(item) {
+  const ov = item?.grossPriceOverride;
+  if (ov === null || ov === undefined) return false;
+
+  const original = round2(getOriginalUnitGross(item));
+  const override = round2(ov);
+
+  // ✅ solo es "mod" si difiere del original (a 2 decimales)
+  return override !== original;
+}
+
+/**
+ * ✅ Setter inteligente:
+ * - Si el nuevo precio es igual al original => elimina override (quita MOD/*)
+ * - Si es distinto => guarda override
+ */
+function setUnitGrossOverrideSmart(item, newUnitGross) {
+  const v = round2(newUnitGross);
+  const original = round2(getOriginalUnitGross(item));
+
+  if (v === original) {
+    // quitar override
+    item.grossPriceOverride = null;
+    // opcional: delete item.grossPriceOverride;
+    return;
+  }
+
+  item.grossPriceOverride = v;
+}
+
+/**
+ * ✅ Restaurar: siempre elimina override
+ */
+function restoreUnitGross(item) {
+  item.grossPriceOverride = null;
+  // opcional: delete item.grossPriceOverride;
 }
 
 function eur(n) {
@@ -543,42 +609,46 @@ function renderCart() {
 
     const row = document.createElement("div");
     row.className = "cart-line";
-    row.dataset.id = item.id;
+    row.dataset.lineid = item._lineId;
 
-    const unitTxt = eur(unitPrice);
+    const modifiedMark = isPriceModified(item)
+      ? " <span class='price-mod'>MOD</span>"
+      : "";
+    const unitTxt = eur(unitPrice) + modifiedMark;
     const lineTxt = eur(lineTotal);
 
     row.innerHTML = `
-  <div class="cart-line-name">
-    <div>${item.name}</div>
-    ${
-      item.secondaryName
-        ? `<div class="cart-line-secondary">${item.secondaryName}</div>`
-        : ""
-    }
-    <div class="cart-line-unit">${item.qty} x ${unitTxt}</div>
-  </div>
+      <div class="cart-line-name">
+        <div>${item.name}</div>
+        ${
+          item.secondaryName
+            ? `<div class="cart-line-secondary">${item.secondaryName}</div>`
+            : ""
+        }
+        <div class="cart-line-unit">${item.qty} x ${unitTxt}</div>
+      </div>
 
-  <div class="qty-controls">
-    <button class="qty-btn" data-action="minus" data-id="${item.id}">-</button>
-    <button type="button" class="qty-display qty-display-btn qty-btn" data-action="edit" data-id="${
-      item.id
-    }">${item.qty}</button>
+      <div class="qty-controls">
+        <button class="qty-btn" data-action="minus" data-lineid="${
+          item._lineId
+        }">-</button>
+        <button type="button" class="qty-display qty-display-btn qty-btn" data-action="edit" data-lineid="${
+          item._lineId
+        }">${item.qty}</button>
+        <button class="qty-btn" data-action="plus" data-lineid="${
+          item._lineId
+        }">+</button>
+      </div>
 
-    <button class="qty-btn" data-action="plus" data-id="${item.id}">+</button>
-
-  </div>
-
-  <div class="cart-line-total">
-  <button type="button" class="line-price-btn" data-action="price" data-id="${
-    item.id
-  }">
-    ${lineTxt}
-  </button>
-  <button class="line-delete-btn" data-id="${item.id}">✕</button>
-</div>
-
-`;
+      <div class="cart-line-total">
+        <button type="button" class="line-price-btn" data-action="price" data-lineid="${
+          item._lineId
+        }">
+          ${lineTxt}
+        </button>
+        <button class="line-delete-btn" data-lineid="${item._lineId}">✕</button>
+      </div>
+    `;
 
     container.appendChild(row);
   });
@@ -989,6 +1059,7 @@ let numPadOverwriteNextDigit = true;
 let numPadMode = "qty"; // "qty" | "price"
 let numPadOriginalUnitGross = null;
 let numPadTargetItemId = null;
+let numPadDefaultValue = "0";
 
 // Función común para cerrar overlays de teclados al hacer clic fuera
 function handleOverlayOutsideClick(e, padSelector, closeFn) {
@@ -1000,10 +1071,33 @@ function handleOverlayOutsideClick(e, padSelector, closeFn) {
   return false;
 }
 
+function formatPrice2(v) {
+  const n = Number(String(v).replace(",", "."));
+  if (!isFinite(n)) return "0.00";
+  return (Math.round(n * 100) / 100).toFixed(2);
+}
+
 function updateNumPadDisplay() {
   if (!numPadDisplay) return;
+
+  if (numPadMode === "price") {
+    // Si el usuario está escribiendo una expresión (contiene operadores),
+    // mostramos tal cual para no romper la edición
+    const s = String(numPadCurrentValue ?? "").trim();
+    const hasOps = /[+\-*/()]/.test(s);
+    if (!s) {
+      numPadDisplay.textContent = "0.00";
+    } else if (hasOps) {
+      numPadDisplay.textContent = s;
+    } else {
+      numPadDisplay.textContent = formatPrice2(s);
+    }
+    return;
+  }
+
+  // qty/cash (como lo tenías)
   numPadDisplay.textContent =
-    numPadCurrentValue === "" ? "0" : numPadCurrentValue;
+    numPadCurrentValue === "" ? "0" : String(numPadCurrentValue);
 }
 
 function openNumPad(
@@ -1019,6 +1113,7 @@ function openNumPad(
   numPadTargetItemId = targetId;
 
   numPadCurrentValue = initialValue != null ? String(initialValue) : "";
+  numPadDefaultValue = numPadCurrentValue === "" ? "0" : numPadCurrentValue; // ✅
   numPadOverwriteNextDigit = true;
   numPadOnConfirm = onConfirm;
 
@@ -1124,7 +1219,19 @@ function numPadBackspace() {
 }
 
 function numPadClearAll() {
-  numPadCurrentValue = "";
+  numPadCurrentValue = "0";
+  numPadOverwriteNextDigit = true;
+  updateNumPadDisplay();
+}
+
+function numPadRestoreDefault() {
+  if (numPadMode === "price") {
+    const value = Number(numPadOriginalUnitGross) || 0;
+    numPadCurrentValue = formatPrice2(value); // ✅ 2 decimales
+  } else {
+    numPadCurrentValue = String(numPadDefaultValue || "0");
+  }
+
   numPadOverwriteNextDigit = true;
   updateNumPadDisplay();
 }
@@ -1191,7 +1298,7 @@ function numPadConfirm() {
 
   // qty
   value = Math.floor(Number(value));
-  if (!isFinite(value) || value <= 0) value = 1;
+  if (!isFinite(value) || value <= 0) value = 0;
   if (typeof numPadOnConfirm === "function") numPadOnConfirm(value);
   closeNumPad();
 }
@@ -1254,12 +1361,18 @@ if (numPadOverlay) {
     } else if (key === "ok") {
       numPadConfirm();
     } else if (key === "resetPrice") {
-      const item = cart.find((c) => c.id === numPadTargetItemId);
-      if (item) {
-        restoreUnitGross(item); // ✅ vuelve al original
-        renderCart();
-      }
-      closeNumPad();
+      // 1) restaurar el valor en el TECLADO (sin cerrar)
+      numPadRestoreDefault();
+
+      // 2) (opcional) si quieres que además aplique inmediatamente al carrito SIN esperar OK:
+      // const item = cart.find((c) => c.id === numPadTargetItemId);
+      // if (item) {
+      //   restoreUnitGross(item);
+      //   renderCart();
+      // }
+      // (Yo recomiendo NO aplicar hasta OK, para que sea coherente con el teclado)
+
+      return;
     }
   });
 }
@@ -1427,30 +1540,29 @@ if (cartLinesContainer) {
     const qtyBtn = e.target.closest(".qty-btn");
     if (qtyBtn) {
       const action = qtyBtn.getAttribute("data-action");
-      const id = parseInt(qtyBtn.getAttribute("data-id"), 10);
-      const item = cart.find((c) => c.id === id);
+      const lineId = qtyBtn.getAttribute("data-lineid");
+      const item = cart.find((c) => c._lineId === lineId);
       if (!item) return;
 
       if (action === "plus") {
-        updateCartItemQuantity(id, item.qty + 1);
+        updateCartItemQuantity(lineId, item.qty + 1);
       } else if (action === "minus") {
-        updateCartItemQuantity(id, item.qty - 1);
+        updateCartItemQuantity(lineId, item.qty - 1);
       } else if (action === "edit") {
         openNumPad(
           item.qty,
-          (newQty) => {
-            updateCartItemQuantity(id, newQty);
-          },
+          (newQty) => updateCartItemQuantity(lineId, newQty),
           item.name
         );
       }
+
       return;
     }
 
     const priceBtn = e.target.closest('[data-action="price"]');
     if (priceBtn) {
-      const id = parseInt(priceBtn.getAttribute("data-id"), 10);
-      const item = cart.find((c) => c.id === id);
+      const lineId = priceBtn.getAttribute("data-lineid");
+      const item = cart.find((c) => c._lineId === lineId);
       if (!item) return;
 
       const currentUnit = getUnitGross(item);
@@ -1460,15 +1572,16 @@ if (cartLinesContainer) {
       openNumPad(
         currentUnit.toFixed(2),
         (newUnitGross) => {
-          const v = Number(newUnitGross);
-          if (!isFinite(v) || v <= 0) return;
-          setUnitGrossOverride(item, v); // ✅ guarda en grossPriceOverride
+          const v = Number(String(newUnitGross).replace(",", "."));
+          if (!isFinite(v) || v < 0) return; // ✅ permite 0
+          const rounded = Math.round(v * 100) / 100; // ✅ 2 decimales reales
+          setUnitGrossOverrideSmart(item, rounded); // ✅ guarda 0 si procede
           renderCart();
         },
         item.name,
         "price",
         originalUnit,
-        id
+        lineId
       );
 
       return;
@@ -1476,8 +1589,8 @@ if (cartLinesContainer) {
 
     const deleteBtn = e.target.closest(".line-delete-btn");
     if (deleteBtn) {
-      const id = parseInt(deleteBtn.getAttribute("data-id"), 10);
-      updateCartItemQuantity(id, 0);
+      const lineId = deleteBtn.getAttribute("data-lineid");
+      updateCartItemQuantity(lineId, 0);
     }
   });
 }
@@ -1536,6 +1649,14 @@ function updateParkedCountBadge() {
   if (!badge) return;
   const n = parkedTickets.length;
   badge.textContent = n;
+}
+
+function isPriceOverridden(item) {
+  // Si guardas el override en grossPriceOverride, con esto basta
+  const ov = item?.grossPriceOverride;
+
+  // true si existe (incluye 0), false si no existe
+  return ov !== null && ov !== undefined;
 }
 
 function getCartTotal(items) {
@@ -3995,6 +4116,7 @@ async function updateFacturaCliente(idfactura, fields) {
 
 // ===== Opciones (⚙️) =====
 const OPTIONS_AUTOPRINT_KEY = "tpv_autoPrint";
+const OPTIONS_GROUPLINES_KEY = "tpv_groupLines";
 
 const optionsBtn = document.getElementById("optionsBtn");
 const optionsOverlay = document.getElementById("optionsOverlay");
@@ -4008,6 +4130,7 @@ const optionsChangePrinterBtn = document.getElementById(
 );
 const currentPrinterNameEl = document.getElementById("currentPrinterName");
 const autoPrintToggle = document.getElementById("autoPrintToggle");
+const groupLinesToggle = document.getElementById("groupLinesToggle");
 
 function isAutoPrintEnabled() {
   return localStorage.getItem(OPTIONS_AUTOPRINT_KEY) === "1";
@@ -4016,8 +4139,55 @@ function setAutoPrintEnabled(v) {
   localStorage.setItem(OPTIONS_AUTOPRINT_KEY, v ? "1" : "0");
 }
 
+function isGroupLinesEnabled() {
+  const v = localStorage.getItem(OPTIONS_GROUPLINES_KEY);
+  return v === null ? true : v === "1"; // por defecto true
+}
+
+function setGroupLinesEnabled(v) {
+  localStorage.setItem(OPTIONS_GROUPLINES_KEY, v ? "1" : "0");
+}
+
+async function syncGroupLinesFromFS() {
+  try {
+    if (!currentTerminal?.id) return;
+
+    // Lee el terminal actual desde FS
+    const resp = await apiRead(`tpvterminales/${currentTerminal.id}`);
+    const doc = resp?.doc || resp?.data || resp || null;
+    if (!doc) return;
+
+    const gl = !!doc.grouplines;
+    setGroupLinesEnabled(gl);
+
+    // si el toggle existe en el modal, refrescarlo
+    if (typeof refreshOptionsUI === "function") refreshOptionsUI();
+
+    console.log("✅ syncGroupLinesFromFS ->", gl);
+  } catch (e) {
+    console.warn("⚠️ No se pudo sync grouplines desde FS:", e?.message || e);
+  }
+}
+
+async function pushGroupLinesToFS(enabled) {
+  try {
+    if (!currentTerminal?.id) return;
+
+    // En FacturaScripts normalmente vale true/false (o 1/0). Enviamos 1/0 para asegurar.
+    await apiWrite(`tpvterminales/${currentTerminal.id}`, "PUT", {
+      grouplines: enabled ? 1 : 0,
+    });
+
+    console.log("✅ pushGroupLinesToFS ->", enabled);
+  } catch (e) {
+    console.warn("⚠️ No se pudo guardar grouplines en FS:", e?.message || e);
+    toast?.("No se pudo guardar en FacturaScripts", "warn", "Opciones");
+  }
+}
+
 function refreshOptionsUI() {
   if (autoPrintToggle) autoPrintToggle.checked = isAutoPrintEnabled();
+  if (groupLinesToggle) groupLinesToggle.checked = isGroupLinesEnabled();
 
   // Estas funciones ya deberían existir por tu printerOverlay:
   // - getSavedPrinterName()
@@ -4031,6 +4201,7 @@ function refreshOptionsUI() {
 function openOptions() {
   refreshOptionsUI();
   optionsOverlay?.classList.remove("hidden");
+  syncGroupLinesFromFS();
 }
 
 function closeOptions() {
@@ -4058,6 +4229,21 @@ autoPrintToggle?.addEventListener("change", () => {
       "Opciones"
     );
   }
+});
+
+// Toggle agrupar líneas
+groupLinesToggle?.addEventListener("change", async () => {
+  const v = !!groupLinesToggle.checked;
+  setGroupLinesEnabled(v);
+
+  toast?.(
+    v ? "Agrupar líneas activado ✅" : "Agrupar líneas desactivado ✅",
+    "info",
+    "Opciones"
+  );
+
+  // Guardar en FacturaScripts para que quede sincronizado
+  await pushGroupLinesToFS(v);
 });
 
 // Cambiar impresora desde Opciones
@@ -5734,7 +5920,8 @@ function renderTicketsList(tickets) {
     const pago = t.codpago || "—";
 
     // ✅ ticket devuelto = total negativo
-    const isRefunded = totalNum < 0;
+    const isRectificativa = Number(t.idfacturarect || 0) > 0;
+    const isRefunded = isRectificativa || totalNum < 0;
     if (isRefunded) div.classList.add("ticket-refunded");
 
     div.innerHTML = `
@@ -5841,6 +6028,7 @@ if (ticketsSearch) {
 function mapFacturaRowToTicketRow(f) {
   return {
     idfactura: f.idfactura,
+    idfacturarect: f.idfacturarect != null ? Number(f.idfacturarect) : 0, // ✅
     codigo: f.codigo || f.numero || f.codigofactura || null,
     nombrecliente: f.nombrecliente || f.cliente || f.razonsocial || "",
     total: f.total != null ? Number(f.total) : 0,

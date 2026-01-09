@@ -966,6 +966,7 @@
       </div>
     </div>
 
+    <!-- Overlay: Opciones -->
     <div id="optionsOverlay" class="simple-overlay hidden">
       <div class="simple-dialog" style="width: 520px; max-width: 94vw">
         <div
@@ -1030,6 +1031,38 @@
               <input type="checkbox" id="autoPrintToggle" />
               <span class="slider"></span>
             </label>
+          </div>
+        </div>
+
+        <div
+          style="
+            margin-top: 16px;
+            border-top: 1px solid #eee;
+            padding-top: 12px;
+          "
+        >
+          <div style="font-weight: 700; margin-bottom: 6px">Carrito</div>
+
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 10px;
+              flex-wrap: wrap;
+            "
+          >
+            <div style="font-size: 13px; opacity: 0.85">Agrupar líneas</div>
+
+            <label class="switch">
+              <input type="checkbox" id="groupLinesToggle" />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div style="font-size: 12px; opacity: 0.7; margin-top: 6px">
+            Si activas, cada toque crea una línea nueva aunque sea el mismo
+            producto.
           </div>
         </div>
 
