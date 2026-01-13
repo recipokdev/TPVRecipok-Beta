@@ -4793,8 +4793,19 @@ async function printTicket(ticket) {
     const hora =
       ticket.hora ||
       now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+    const raw = ticket._raw || {};
+    const codserie = String(raw.codserie || "").toUpperCase();
+    const isRect =
+      codserie === "R" ||
+      Number(ticket.idfacturarect || raw.idfacturarect || 0) > 0 ||
+      !!(raw.codigorect || ticket.codigorect);
 
-    // 2) Cabecera factura
+    setText(
+      doc,
+      "invoiceLabel",
+      isRect ? "Factura Rectificativa" : "Factura Simplificada"
+    );
+
     setText(doc, "invoiceNumber", ticket.numero != null ? ticket.numero : "—");
     setText(doc, "ticketDate", `${fecha} ${hora}`);
     setText(doc, "clientName", (ticket.clientName || "").trim() || "Cliente");
@@ -6036,6 +6047,10 @@ async function loadAndRenderTickets() {
       saveTicketsCache(ticketsCache);
 
       const merged = getAllTicketsForUI(ticketsCache);
+
+      // ✅ AQUÍ: usar merged, no "list"
+      linkTicketsRefundRelations(merged);
+
       renderTicketsList(merged);
       return;
     }
@@ -6045,6 +6060,8 @@ async function loadAndRenderTickets() {
     ticketsCache = cached;
 
     const merged = getAllTicketsForUI(ticketsCache);
+
+    linkTicketsRefundRelations(merged);
     renderTicketsList(merged);
   } catch (e) {
     console.error(e);
@@ -6053,7 +6070,10 @@ async function loadAndRenderTickets() {
     const cached = loadTicketsCache();
     if (cached.length) {
       ticketsCache = cached;
-      renderTicketsList(ticketsCache);
+
+      const merged = getAllTicketsForUI(ticketsCache);
+      linkTicketsRefundRelations(merged);
+      renderTicketsList(merged);
     } else {
       ticketsList.innerHTML = `<div class="parked-ticket-empty">Error cargando tickets.</div>`;
       toast("Error cargando tickets: " + (e?.message || e), "err", "Tickets");
@@ -6063,14 +6083,56 @@ async function loadAndRenderTickets() {
   }
 }
 
+// estado de desplegados
+const __ticketsExpanded = new Set(); // guarda idfactura del ORIGINAL expandido
+
+function toggleTicketThread(origId) {
+  const k = String(origId);
+  if (__ticketsExpanded.has(k)) __ticketsExpanded.delete(k);
+  else __ticketsExpanded.add(k);
+}
+
+function isExpanded(origId) {
+  return __ticketsExpanded.has(String(origId));
+}
+
+function renderRefundChildRow(r) {
+  const num = r.codigo || `#${r.idfactura}`;
+  const fechaHora = `${r.fecha || ""} ${r.hora || ""}`.trim();
+  const total = eurES(Number(r.total || 0));
+
+  return `
+    <div class="ticket-row ticket-child" data-id="${r.idfactura}"
+      style="margin-left:18px; padding-left:12px; border-left:3px solid #f3f4f6;">
+      <div class="ticket-left">
+        <div class="ticket-num" style="font-weight:600;">
+          ↩ ${escapeHtml(num)}
+          <span style="margin-left:10px; opacity:.75;">De: ${escapeHtml(
+            r._origCodigo || r.codigorect || ""
+          )}</span>
+        </div>
+        <div class="ticket-bot">${escapeHtml(fechaHora)}</div>
+      </div>
+
+      <div class="ticket-right">
+        <div class="ticket-total">${total}</div>
+        <div class="ticket-actions">
+          <button type="button" class="ticket-btn ticket-print" title="Imprimir">🖨</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderTicketsList(tickets) {
   if (!ticketsList) return;
 
   const term = (ticketsSearch?.value || "").trim().toLowerCase();
-  let filtered = Array.isArray(tickets) ? tickets : [];
+  let list = Array.isArray(tickets) ? tickets : [];
 
+  // Buscar
   if (term) {
-    filtered = filtered.filter((t) => {
+    list = list.filter((t) => {
       const s = `${t.codigo || ""} ${t.nombrecliente || ""} ${t.total || ""} ${
         t.codpago || ""
       }`.toLowerCase();
@@ -6080,12 +6142,23 @@ function renderTicketsList(tickets) {
 
   ticketsList.innerHTML = "";
 
-  if (!filtered.length) {
+  if (!list.length) {
     ticketsList.innerHTML = `<div class="parked-ticket-empty">No hay tickets.</div>`;
     return;
   }
 
-  filtered.forEach((t) => {
+  // ✅ Oculta rectificativas “sueltas”: se verán debajo del original
+  const originals = list.filter((t) => {
+    const raw = t._raw || {};
+    const codserie = String(t.codserie || raw.codserie || "").toUpperCase();
+    const isRect =
+      codserie === "R" ||
+      Number(t.idfacturarect || raw.idfacturarect || 0) > 0 ||
+      !!(t.codigorect || raw.codigorect);
+    return !isRect;
+  });
+
+  originals.forEach((t) => {
     const div = document.createElement("div");
     div.className = "ticket-row";
 
@@ -6093,25 +6166,52 @@ function renderTicketsList(tickets) {
     const cliente = t.nombrecliente || "Cliente";
     const fechaHora = `${t.fecha || ""} ${t.hora || ""}`.trim();
     const totalNum = Number(t.total || 0);
-    const total = eurES(totalNum);
     const pago = t.codpago || "—";
 
-    // ✅ ticket devuelto = total negativo
-    const isRectificativa = Number(t.idfacturarect || 0) > 0;
-    const isRefunded = isRectificativa || totalNum < 0;
-    const isPartial = !!t._hasPartialRefund;
-    if (isRefunded) div.classList.add("ticket-refunded");
+    const refunds = Array.isArray(t._refunds) ? t._refunds : [];
+    const hasRefunds = refunds.length > 0 || !!t._hasPartialRefund;
+    const isFullyRefunded = !!t._isFullyRefunded;
+
+    // ✅ estado visual
+    let statusClass = "ticket-status-ok";
+    let badgeHtml = `<span class="ticket-badge ticket-badge-ok">OK</span>`;
+
+    if (hasRefunds && isFullyRefunded) {
+      statusClass = "ticket-status-fullref";
+      badgeHtml = `<span class="ticket-badge ticket-badge-fullref">DEVUELTO</span>`;
+    } else if (hasRefunds) {
+      statusClass = "ticket-status-partial";
+      badgeHtml = `<span class="ticket-badge ticket-badge-partial">PARCIAL</span>`;
+    }
+
+    div.classList.add(statusClass);
+
+    // ✅ Total mostrado:
+    // - OK / DEVUELTO completo: mostramos el total “tal cual” (el de facturaclientes)
+    // - PARCIAL: mostramos "TOTAL (REST X€)"
+    const remaining = Number(t._remainingAfterRefund ?? 0);
+    let totalHtml = eurES(totalNum);
+
+    if (hasRefunds && !isFullyRefunded) {
+      totalHtml = `${eurES(
+        totalNum
+      )} <span style="font-size:12px; font-weight:800; opacity:.85;">(${eurES(
+        remaining
+      )} Rest)</span>`;
+    }
+
+    // ✅ texto Dev: N
+    const devCountTxt = hasRefunds
+      ? `<span style="margin-left:10px; font-size:12px; opacity:.75;">Dev: ${refunds.length}</span>`
+      : "";
 
     div.innerHTML = `
       <div class="ticket-left">
         <div class="ticket-num">
-  ${escapeHtml(num)}
-  ${
-    isPartial
-      ? `<span style="margin-left:8px; font-size:12px; font-weight:700; color:#f59e0b;">PARCIAL</span>`
-      : ""
-  }
-</div>
+          ${escapeHtml(num)}
+          ${badgeHtml}
+          ${devCountTxt}
+        </div>
 
         <div class="ticket-mid">
           <span class="ticket-client">${escapeHtml(cliente)}</span>
@@ -6125,12 +6225,13 @@ function renderTicketsList(tickets) {
       </div>
 
       <div class="ticket-right">
-        <div class="ticket-total">${total}</div>
+        <div class="ticket-total">${totalHtml}</div>
 
         <div class="ticket-actions">
           <button type="button" class="ticket-btn ticket-print" title="Imprimir">🖨</button>
           ${
-            isRefunded
+            // Si está devuelto completo, normalmente NO quieres devolver más
+            hasRefunds && isFullyRefunded
               ? ""
               : `<button type="button" class="ticket-btn ticket-refund" title="Devolver">↩</button>`
           }
@@ -6138,13 +6239,12 @@ function renderTicketsList(tickets) {
       </div>
     `;
 
-    // ✅ imprimir siempre
+    // ✅ imprimir
     const printBtn = div.querySelector(".ticket-print");
     if (printBtn) {
       printBtn.onclick = async (e) => {
         e.stopPropagation();
 
-        // ✅ Si es ticket offline, imprimimos lo guardado (sin API)
         if (t && t._offline) {
           const ticket = {
             numero: t.codigo || "OFFLINE",
@@ -6160,17 +6260,15 @@ function renderTicketsList(tickets) {
             pagos: Array.isArray(t.pagos) ? t.pagos : [],
             cambio: Number(t.cambio || 0),
           };
-
           await printTicket(ticket);
           return;
         }
 
-        // ✅ Online normal
         await imprimirFacturaHistorica(t);
       };
     }
 
-    // ✅ devolver solo si existe el botón (no devueltos)
+    // ✅ devolver
     const refundBtn = div.querySelector(".ticket-refund");
     if (refundBtn) {
       refundBtn.onclick = async (e) => {
@@ -6179,13 +6277,65 @@ function renderTicketsList(tickets) {
       };
     }
 
-    // ✅ click en la fila: solo abre devolución si NO está devuelto
+    // ✅ click fila abre devolución (solo si no está devuelto completo)
     div.onclick = async () => {
-      if (isRefunded) return;
+      if (hasRefunds && isFullyRefunded) return;
       await openRefundForFactura(t);
     };
 
     ticketsList.appendChild(div);
+
+    // ✅ Hijos (rectificativas) siempre debajo si existen
+    if (refunds.length) {
+      const holder = document.createElement("div");
+      holder.className = "ticket-children";
+
+      holder.innerHTML = refunds
+        .map((r) => {
+          const rnum = r.codigo || `#${r.idfactura}`;
+          const rFechaHora = `${r.fecha || ""} ${r.hora || ""}`.trim();
+          const rTotal = eurES(Number(r.total || 0));
+
+          return `
+            <div class="ticket-row ticket-status-fullref ticket-child" data-id="${Number(
+              r.idfactura || 0
+            )}">
+              <div class="ticket-left">
+                <div class="ticket-num">
+                  ↩ ${escapeHtml(rnum)}
+                  <span style="margin-left:8px; font-size:12px; opacity:.7;">De: ${escapeHtml(
+                    num
+                  )}</span>
+                </div>
+                <div class="ticket-bot">${escapeHtml(rFechaHora)}</div>
+              </div>
+
+              <div class="ticket-right">
+                <div class="ticket-total">${rTotal}</div>
+                <div class="ticket-actions">
+                  <button type="button" class="ticket-btn ticket-print" title="Imprimir">🖨</button>
+                </div>
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+
+      ticketsList.appendChild(holder);
+
+      // bind imprimir en hijos
+      holder.querySelectorAll(".ticket-child").forEach((rowEl) => {
+        const id = Number(rowEl.getAttribute("data-id") || 0);
+        const rr = refunds.find((x) => Number(x.idfactura) === id);
+        const btn = rowEl.querySelector(".ticket-print");
+        if (btn && rr) {
+          btn.onclick = async (e) => {
+            e.stopPropagation();
+            await imprimirFacturaHistorica(rr);
+          };
+        }
+      });
+    }
   });
 }
 
@@ -6219,6 +6369,8 @@ function mapFacturaRowToTicketRow(f) {
     total: f.total != null ? Number(f.total) : 0,
     codpago: f.codpago || f.formapago || "",
     fecha: f.fecha || "",
+    codserie: f.codserie || "",
+    codigorect: f.codigorect || "",
     hora: f.hora || "",
     _raw: f,
   };
@@ -6890,10 +7042,102 @@ async function fetchUltimosTickets(limit = 60, days = 30) {
   }
 
   list = filterLastNDays(list, days);
-  list = hideRefundedOriginals(list);
+  //borrar linea original si esta devuelta
+  //list = hideRefundedOriginals(list);
   list = sortTicketsByFechaDesc(list);
 
   return list.slice(0, limit);
+}
+
+function linkTicketsRefundRelations(list) {
+  const tickets = Array.isArray(list) ? list : [];
+
+  // Index rápido por código e id
+  const byCodigo = {};
+  const byId = {};
+  tickets.forEach((t) => {
+    if (t?.codigo) byCodigo[String(t.codigo)] = t;
+    if (t?.idfactura != null) byId[String(t.idfactura)] = t;
+  });
+
+  // refundsByOrigCodigo: "FAC2026A124" -> [refundTicket, ...]
+  const refundsByOrigCodigo = {};
+
+  // 1) Detecta devoluciones y agrúpalas por codigorect
+  for (const t of tickets) {
+    const raw = t?._raw || {};
+    const codserie = String(t.codserie || raw.codserie || "").toUpperCase();
+    const isRefund =
+      codserie === "R" ||
+      Number(t.idfacturarect || raw.idfacturarect || 0) > 0 ||
+      Number(t.total || 0) < 0;
+
+    if (!isRefund) continue;
+
+    const origCodigo = String(t.codigorect || raw.codigorect || "").trim();
+    const origId = Number(t.idfacturarect || raw.idfacturarect || 0) || 0;
+
+    // Guardamos referencias para pintar UI
+    t._isRefund = true;
+    t._origCodigo = origCodigo || null;
+    t._origId = origId || null;
+
+    if (origCodigo) {
+      if (!refundsByOrigCodigo[origCodigo])
+        refundsByOrigCodigo[origCodigo] = [];
+      refundsByOrigCodigo[origCodigo].push(t);
+    }
+  }
+
+  // 2) Marca originales como parciales si tienen devoluciones
+  for (const t of tickets) {
+    const raw = t?._raw || {};
+    const codserie = String(t.codserie || raw.codserie || "").toUpperCase();
+    const isRefund =
+      t._isRefund || codserie === "R" || Number(t.total || 0) < 0;
+    if (isRefund) continue;
+
+    const codigo = String(t.codigo || "").trim();
+    const refunds = codigo ? refundsByOrigCodigo[codigo] || [] : [];
+
+    if (refunds.length) {
+      t._refunds = refunds.slice().sort((a, b) => {
+        const ad = `${a.fecha || ""} ${a.hora || ""}`.trim();
+        const bd = `${b.fecha || ""} ${b.hora || ""}`.trim();
+        return bd.localeCompare(ad);
+      });
+
+      t._hasPartialRefund = true;
+      t._refundCount = refunds.length;
+
+      // 👇 total devuelto (en positivo)
+      const refundedAbs = refunds.reduce(
+        (acc, r) => acc + Math.abs(Number(r.total || 0)),
+        0
+      );
+
+      // 👇 total original (positivo)
+      const originalTotal = Math.abs(Number(t.total || 0));
+
+      // 👇 restante “cobrado” (lo que queda tras devoluciones)
+      const remaining = Math.max(0, originalTotal - refundedAbs);
+
+      t._refundTotalAbs = refundedAbs;
+      t._remainingAfterRefund = remaining;
+
+      // ✅ devuelto al 100% (tolerancia céntimos)
+      t._isFullyRefunded = remaining <= 0.009;
+    } else {
+      t._refunds = [];
+      t._hasPartialRefund = false;
+      t._refundCount = 0;
+      t._refundTotalAbs = 0;
+      t._remainingAfterRefund = null;
+      t._isFullyRefunded = false;
+    }
+  }
+
+  return tickets;
 }
 
 function hideRefundedOriginals(rows) {

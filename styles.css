@@ -2256,3 +2256,84 @@ body.modal-locked .cart-card {
 #paymentMethod {
   white-space: pre-line;
 }
+
+/* Base tarjeta */
+.ticket-row {
+  border: 2px solid transparent;
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+
+/* Estados */
+.ticket-status-ok {
+  border-color: #22c55e; /* verde */
+}
+
+.ticket-status-partial {
+  border-color: #f59e0b; /* naranja */
+}
+
+.ticket-status-fullref {
+  border-color: #ef4444; /* rojo */
+}
+
+/* Color del total según estado */
+.ticket-status-ok .ticket-total {
+  color: #111827;
+  font-weight: 800;
+}
+
+.ticket-status-partial .ticket-total {
+  color: #f59e0b;
+  font-weight: 800;
+}
+
+.ticket-status-fullref .ticket-total {
+  color: #ef4444;
+  font-weight: 900;
+}
+
+/* Etiquetas */
+.ticket-badge {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.ticket-badge-partial {
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #f59e0b;
+}
+
+.ticket-badge-fullref {
+  color: #991b1b;
+  background: #fef2f2;
+  border: 1px solid #ef4444;
+}
+
+.ticket-badge-ok {
+  color: #065f46;
+  background: #ecfdf5;
+  border: 1px solid #22c55e;
+}
+
+/* Hijos (rectificativas) más marcados */
+.ticket-child {
+  border-width: 3px !important;
+  background: #fff7f7;
+}
+
+/* Bloque contenedor hijos */
+.ticket-children {
+  margin: 6px 0 12px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
