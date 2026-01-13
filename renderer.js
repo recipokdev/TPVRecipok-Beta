@@ -4676,275 +4676,364 @@ function keyForRefundMatch(desc, pvpunitario, codimpuesto) {
   return `${d}|${p}|${c}`;
 }
 
-async function printTicket(ticket) {
-  if (!ticket) {
-    toast("No hay ticket para imprimir.", "warn", "Impresión");
-    return;
-  }
+// Cache simple de formas de pago (codpago -> descripcion)
+let __formasPagoMapCache = null;
+async function getFormasPagoMap() {
+  if (__formasPagoMapCache) return __formasPagoMapCache;
 
-  const printerName = await ensurePrinterSelected();
-  if (!printerName) {
-    toast("Impresión cancelada (sin impresora).", "warn", "Impresión");
-    return;
-  }
-
-  // 1) Cargar plantilla
-  let templateHtml = "";
   try {
-    const res = await fetch("ticket_print.html", { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    templateHtml = await res.text();
+    const rows = await fetchApiResourceWithParams("formapagos", {
+      limit: 2000,
+    });
+    const map = {};
+    (Array.isArray(rows) ? rows : []).forEach((r) => {
+      const k = String(r.codpago || "").trim();
+      if (k) map[k] = String(r.descripcion || k);
+    });
+    __formasPagoMapCache = map;
+    return map;
   } catch (e) {
-    toast(
-      "No puedo cargar ticket_print.html: " + (e.message || e),
-      "err",
-      "Impresión"
-    );
+    console.warn("[printTicket] No pude cargar formapagos:", e?.message || e);
+    __formasPagoMapCache = {};
+    return __formasPagoMapCache;
+  }
+}
+
+function eurTicket(n) {
+  const v = Number(n) || 0;
+  return v.toFixed(2).replace(".", ",");
+}
+
+// Render de pagos: Total + filas por método
+async function renderPayments(doc, ticket, totalToShow) {
+  const map = await getFormasPagoMap();
+  const pagos = Array.isArray(ticket.pagos) ? ticket.pagos : [];
+
+  // Agrupar por descripción final (por si vienen repetidos)
+  const grouped = {};
+  for (const p of pagos) {
+    const code = String(p.codpago || "—").trim() || "—";
+    const desc = map[code] || code;
+    const imp = Number(p.importe ?? 0) || 0;
+    grouped[desc] = (grouped[desc] || 0) + imp;
+  }
+
+  const wrap = doc.getElementById("payments");
+  if (!wrap) {
+    // fallback: si no existe el contenedor, al menos deja texto en paymentMethod
+    const paymentMethodEl = doc.getElementById("paymentMethod");
+    if (paymentMethodEl) {
+      paymentMethodEl.textContent = Object.entries(grouped)
+        .map(([d, imp]) => `${d}: ${eurTicket(imp)}`)
+        .join(" + ");
+    }
+    const paidAmountEl = doc.getElementById("paidAmount");
+    if (paidAmountEl) paidAmountEl.textContent = eurTicket(totalToShow);
     return;
   }
 
-  const doc = new DOMParser().parseFromString(templateHtml, "text/html");
+  wrap.innerHTML = "";
 
-  // 2) Método pago
-  if (Array.isArray(ticket.pagos) && ticket.pagos.length) {
-    const txt = ticket.pagos
-      .map((p) => `${p.descripcion || p.codpago}: ${euro2es(p.importe)}`)
-      .join(" + ");
-    setText(doc, "paymentMethod", txt);
-  } else {
-    setText(doc, "paymentMethod", ticket.paymentMethod || "Efectivo");
-  }
+  // Total (solo una vez)
+  const rowTotal = doc.createElement("div");
+  rowTotal.className = "row";
+  rowTotal.innerHTML = `
+    <div class="bold">Total</div>
+    <div class="bold right">${eurTicket(totalToShow)}</div>
+  `;
+  wrap.appendChild(rowTotal);
 
-  // Helpers
-  const eur = (n) => (Number(n) || 0).toFixed(2).replace(".", ",");
-  const now = new Date();
-  const fecha = ticket.fecha || now.toLocaleDateString("es-ES");
-  const hora =
-    ticket.hora ||
-    now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+  // Métodos
+  Object.entries(grouped).forEach(([desc, imp]) => {
+    const row = doc.createElement("div");
+    row.className = "row small muted";
+    row.innerHTML = `
+      <div>${escapeHtml(desc)}</div>
+      <div class="right">${eurTicket(imp)}</div>
+    `;
+    wrap.appendChild(row);
+  });
+}
 
-  // 3) Factura / fecha / cliente
-  setText(doc, "invoiceNumber", ticket.numero != null ? ticket.numero : "—");
-  setText(doc, "ticketDate", `${fecha} ${hora}`);
-  setText(doc, "clientName", (ticket.clientName || "").trim() || "Cliente");
-
-  // 4) Datos empresa
-  const emp = ticket.company || companyInfo || null;
-
-  const logoEl = doc.getElementById("companyLogo");
-  const logoUrl = companyLogoUrl || "";
-  if (logoEl && logoUrl) {
-    logoEl.setAttribute("src", logoUrl);
-    logoEl.style.display = "inline-block";
-  }
-
-  setText(doc, "companyShortName", emp?.nombrecorto || "—");
-  setText(doc, "companyLegalName", emp?.nombre || "");
-  setText(doc, "companyAddress", emp?.direccion || "");
-  setText(doc, "companyZip", emp?.codpostal ? emp.codpostal + ", " : "");
-  setText(doc, "companyCity", emp?.ciudad || "");
-  setText(doc, "companyCif", emp?.cifnif || "—");
-  setText(doc, "companyPhone", emp?.telefono1 || "");
-
-  // 5) TPV / agente
-  const terminalTexto =
-    (currentTerminal?.name || ticket.terminalName || "").trim() || "—";
-  const agenteTexto =
-    (currentAgent?.name || ticket.agentName || "").trim() || "—";
-  setText(doc, "terminalName", terminalTexto);
-  setText(doc, "agentName", agenteTexto);
-
-  // 6) Pintar líneas + calcular total + IVA
-  const itemsEl = doc.getElementById("items");
-  if (itemsEl) itemsEl.innerHTML = "";
-
-  // ---------- LÍNEAS A IMPRIMIR ----------
-  // Partimos de las líneas del ticket recibido
-  let lineas = Array.isArray(ticket.lineas) ? ticket.lineas : [];
-
-  // Si es FACTURA ORIGINAL (no rectificativa) y sabemos su idfactura,
-  // reconstruimos para mostrar:
-  //   + pendiente (positivo)
-  //   - devuelto  (negativo)
+async function printTicket(ticket) {
   try {
-    const raw = ticket._raw || {};
-    const isRectificativa = !!(
-      (
-        raw.idfacturarect ||
-        raw.facturarect ||
-        raw.rectificada ||
-        ticket.idfacturarect
-      ) // por si tu mapeo lo trae arriba
-    );
+    if (!ticket) {
+      toast("No hay ticket para imprimir.", "warn", "Impresión");
+      return;
+    }
 
-    if (!isRectificativa && ticket.idfactura) {
-      const origLines = await fetchLineasFactura(ticket.idfactura);
-      const refundedMap = await buildRefundedQtyMapForOriginal(
-        ticket.idfactura
+    console.log("[printTicket] ticket:", ticket);
+
+    const printerName = await ensurePrinterSelected();
+    if (!printerName) {
+      toast("Impresión cancelada (sin impresora).", "warn", "Impresión");
+      return;
+    }
+
+    // 1) Cargar plantilla
+    let templateHtml = "";
+    try {
+      const res = await fetch("ticket_print.html", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      templateHtml = await res.text();
+    } catch (e) {
+      toast(
+        "No puedo cargar ticket_print.html: " + (e.message || e),
+        "err",
+        "Impresión"
       );
+      return;
+    }
 
-      const rebuilt = [];
+    const doc = new DOMParser().parseFromString(templateHtml, "text/html");
 
-      for (const l of origLines || []) {
-        const sold = Number(l.cantidad || 0);
+    // Helpers fecha/hora
+    const now = new Date();
+    const fecha = ticket.fecha || now.toLocaleDateString("es-ES");
+    const hora =
+      ticket.hora ||
+      now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
 
-        // clave consistente para cruzar devoluciones
-        const k = keyForRefundMatch(
-          l.descripcion,
-          l.pvpunitario,
-          l.codimpuesto
+    // 2) Cabecera factura
+    setText(doc, "invoiceNumber", ticket.numero != null ? ticket.numero : "—");
+    setText(doc, "ticketDate", `${fecha} ${hora}`);
+    setText(doc, "clientName", (ticket.clientName || "").trim() || "Cliente");
+
+    // 3) Empresa
+    const emp = ticket.company || companyInfo || null;
+    const logoEl = doc.getElementById("companyLogo");
+    const logoUrl = companyLogoUrl || "";
+    if (logoEl && logoUrl) {
+      logoEl.setAttribute("src", logoUrl);
+      logoEl.style.display = "inline-block";
+    }
+    setText(doc, "companyShortName", emp?.nombrecorto || "—");
+    setText(doc, "companyLegalName", emp?.nombre || "");
+    setText(doc, "companyAddress", emp?.direccion || "");
+    setText(doc, "companyZip", emp?.codpostal ? emp.codpostal + ", " : "");
+    setText(doc, "companyCity", emp?.ciudad || "");
+    setText(doc, "companyCif", emp?.cifnif || "—");
+    setText(doc, "companyPhone", emp?.telefono1 || "");
+
+    // 4) TPV / agente
+    const terminalTexto =
+      (currentTerminal?.name || ticket.terminalName || "").trim() || "—";
+    const agenteTexto =
+      (currentAgent?.name || ticket.agentName || "").trim() || "—";
+    setText(doc, "terminalName", terminalTexto);
+    setText(doc, "agentName", agenteTexto);
+
+    // 5) Líneas
+    const itemsEl = doc.getElementById("items");
+    if (itemsEl) itemsEl.innerHTML = "";
+
+    let lineas = Array.isArray(ticket.lineas) ? ticket.lineas : [];
+    let totalsOnlyPositive = false; // <- clave para PARCIAL
+
+    // Si es original (no rectificativa) y tiene idfactura, reconstruimos:
+    // + pendiente (pos) y - devuelto (neg)
+    try {
+      const raw = ticket._raw || {};
+      const idfacturarect =
+        Number(ticket.idfacturarect || raw.idfacturarect || 0) || 0;
+      const codserie = String(raw.codserie || "").toUpperCase();
+
+      const isRectificativa = idfacturarect > 0 || codserie === "R";
+
+      if (!isRectificativa && ticket.idfactura) {
+        const origLines = await fetchLineasFactura(ticket.idfactura);
+        const refundedMap = await buildRefundedQtyMapForOriginal(
+          ticket.idfactura
         );
 
-        const refunded = Number(refundedMap[k] || 0);
-        const pending = Math.max(0, sold - refunded);
+        const rebuilt = [];
 
-        const tax = Number(extractTaxRateFromCode(l.codimpuesto) || 0);
-        const unitGross = (Number(l.pvpunitario) || 0) * (1 + tax / 100);
+        for (const l of origLines || []) {
+          const sold = Number(l.cantidad || 0);
+          const k = lineKeyForMatch(
+            l.descripcion,
+            l.pvpunitario,
+            l.codimpuesto
+          );
+          const refunded = Number(refundedMap[k] || 0);
+          const pending = Math.max(0, sold - refunded);
 
-        if (pending > 0) {
-          rebuilt.push({
-            descripcion: l.descripcion,
-            cantidad: pending,
-            pvpunitario: l.pvpunitario,
-            codimpuesto: l.codimpuesto,
-            taxRate: tax,
-            // precio bruto ya calculado para evitar líos
-            __forceUnitGross: unitGross,
-          });
+          const tax = Number(extractTaxRateFromCode(l.codimpuesto) || 0);
+          const unitGross = (Number(l.pvpunitario) || 0) * (1 + tax / 100);
+
+          if (pending > 0) {
+            rebuilt.push({
+              descripcion: l.descripcion,
+              cantidad: pending,
+              pvpunitario: l.pvpunitario,
+              codimpuesto: l.codimpuesto,
+              taxRate: tax,
+              __forceUnitGross: unitGross,
+            });
+          }
+
+          if (refunded > 0) {
+            rebuilt.push({
+              descripcion: `DEV - ${normalizeRefundDesc(l.descripcion)}`,
+              cantidad: -refunded,
+              pvpunitario: l.pvpunitario,
+              codimpuesto: l.codimpuesto,
+              taxRate: tax,
+              __forceUnitGross: unitGross,
+            });
+          }
         }
 
-        if (refunded > 0) {
-          rebuilt.push({
-            descripcion: `DEV - ${normalizeRefundDesc(l.descripcion)}`,
-            cantidad: -refunded,
-            pvpunitario: l.pvpunitario,
-            codimpuesto: l.codimpuesto,
-            taxRate: tax,
-            __forceUnitGross: unitGross,
-          });
-        }
+        // Si hemos metido DEV negativas, esto es “PARCIAL” => totales solo positivas
+        const hasNeg = rebuilt.some((x) => Number(x.cantidad) < 0);
+        const hasPos = rebuilt.some((x) => Number(x.cantidad) > 0);
+        totalsOnlyPositive = hasNeg && hasPos;
+
+        lineas = rebuilt;
       }
-
-      lineas = rebuilt;
-    }
-  } catch (e) {
-    console.warn("No pude reconstruir líneas con devoluciones:", e);
-  }
-
-  // ---------- CÁLCULOS ----------
-  let total = 0;
-  const taxMap = {}; // { rate: { base, iva } }
-
-  for (const l of lineas) {
-    const name = (l.name || l.descripcion || "Producto").toString().trim();
-    const qtyRaw = Number(l.qty ?? l.cantidad ?? 1) || 1;
-
-    // unitGross (con IVA), prioridad clara:
-    // 1) __forceUnitGross (solo cuando reconstruimos original)
-    // 2) grossPriceOverride (si tú lo usas en TPV)
-    // 3) grossPrice (ya bruto)
-    // 4) price (neto) + IVA
-    // 5) pvpunitario (FS neto) + IVA
-    let unitGross = 0;
-
-    if (l && typeof l.__forceUnitGross === "number") {
-      unitGross = Number(l.__forceUnitGross) || 0;
-    } else if (l && l.grossPriceOverride != null) {
-      unitGross = Number(l.grossPriceOverride) || 0;
-    } else if (typeof l.grossPrice === "number" && !isNaN(l.grossPrice)) {
-      unitGross = Number(l.grossPrice);
-    } else if (typeof l.price === "number" && !isNaN(l.price)) {
-      const tax = Number(l.taxRate ?? 0) || 0;
-      unitGross = Number(l.price) * (1 + tax / 100);
-    } else if (typeof l.pvpunitario !== "undefined") {
-      const tax =
-        Number(l.taxRate ?? extractTaxRateFromCode(l.codimpuesto) ?? 0) || 0;
-      unitGross = (Number(l.pvpunitario) || 0) * (1 + tax / 100);
-    }
-
-    const rate =
-      Number(l.taxRate ?? extractTaxRateFromCode(l.codimpuesto) ?? 0) || 0;
-
-    const lineGross = unitGross * qtyRaw;
-    total += lineGross;
-
-    const divisor = 1 + rate / 100;
-    const lineBase = divisor > 0 ? lineGross / divisor : lineGross;
-    const lineIva = lineGross - lineBase;
-
-    if (!taxMap[rate]) taxMap[rate] = { base: 0, iva: 0 };
-    taxMap[rate].base += lineBase;
-    taxMap[rate].iva += lineIva;
-
-    // Render item (si qty es negativa, se verá con "-" y el total también)
-    if (itemsEl) {
-      const qtyTxt = qtyRaw; // si quieres, aquí puedes formatear a "-1" etc.
-      const div = doc.createElement("div");
-      div.className = "item";
-      div.innerHTML = `
-        <div class="item-top">
-          <div class="qty">${qtyTxt}</div>
-          <div class="desc">${escapeHtml(name)}</div>
-          <div class="ltotal">${eur(lineGross)}</div>
-        </div>
-      `;
-      itemsEl.appendChild(div);
-    }
-  }
-
-  // 7) Desglose IVA
-  const taxSummaryEl = doc.getElementById("taxSummary");
-  if (taxSummaryEl) taxSummaryEl.innerHTML = "";
-
-  const ratesSorted = Object.keys(taxMap)
-    .map((r) => Number(r))
-    .filter((r) => !isNaN(r) && r !== 0)
-    .sort((a, b) => a - b);
-
-  for (const r of ratesSorted) {
-    const base = taxMap[r].base;
-    const iva = taxMap[r].iva;
-    appendRow(taxSummaryEl, `Base Imponible ${r}%`, eur(base));
-    appendRow(taxSummaryEl, `IVA ${r}%`, eur(iva));
-  }
-
-  // 8) Totales
-  setText(doc, "grandTotal", eur(total));
-  setText(doc, "paidAmount", eur(total));
-
-  const finalHtml = "<!doctype html>\n" + doc.documentElement.outerHTML;
-
-  const isCash = Array.isArray(ticket.pagos)
-    ? ticket.pagos.some(isCashPago)
-    : true;
-
-  const res = await window.TPV_PRINT.printTicket({
-    html: finalHtml,
-    deviceName: printerName,
-  });
-
-  if (!res || !res.ok) {
-    toast(
-      "No se pudo imprimir: " + (res?.error || "error desconocido"),
-      "err",
-      "Impresión"
-    );
-    return;
-  }
-
-  toast("Ticket impreso ✅", "ok", "Impresión");
-
-  // Abrir cajón solo si es efectivo
-  if (isCash) {
-    const drawer = await window.TPV_PRINT.openCashDrawer(printerName);
-    if (!drawer || !drawer.ok) {
-      toast(
-        "Ticket impreso, pero no se pudo abrir el cajón: " +
-          (drawer?.error || "error desconocido"),
-        "warn",
-        "Cajón"
+    } catch (e) {
+      console.warn(
+        "[printTicket] No pude reconstruir líneas con devoluciones:",
+        e
       );
     }
+
+    // 6) Calcular IVA y totales
+    let totalToShow = 0;
+    const taxMap = {}; // { rate: { base, iva } }
+
+    for (const l of lineas) {
+      const name = (l.name || l.descripcion || "Producto").toString().trim();
+      const qty = Number(l.qty ?? l.cantidad ?? 1) || 1;
+
+      // Precio bruto unitario (IVA incluido)
+      let unitGross = 0;
+
+      // 1) forzado (reconstrucción)
+      if (l && typeof l.__forceUnitGross === "number") {
+        unitGross = Number(l.__forceUnitGross) || 0;
+      }
+      // 2) override manual TPV
+      else if (l && l.grossPriceOverride != null) {
+        unitGross = Number(l.grossPriceOverride) || 0;
+      }
+      // 3) ya bruto
+      else if (typeof l.grossPrice === "number" && !isNaN(l.grossPrice)) {
+        unitGross = Number(l.grossPrice);
+      }
+      // 4) neto + IVA
+      else if (typeof l.price === "number" && !isNaN(l.price)) {
+        const tax = Number(l.taxRate ?? 0) || 0;
+        unitGross = Number(l.price) * (1 + tax / 100);
+      }
+      // 5) FS neto + IVA
+      else if (typeof l.pvpunitario !== "undefined") {
+        const tax =
+          Number(l.taxRate ?? extractTaxRateFromCode(l.codimpuesto) ?? 0) || 0;
+        unitGross = (Number(l.pvpunitario) || 0) * (1 + tax / 100);
+      }
+
+      const rate =
+        Number(l.taxRate ?? extractTaxRateFromCode(l.codimpuesto) ?? 0) || 0;
+
+      const lineGross = unitGross * qty;
+
+      // ✅ Render SIEMPRE (para ver DEV negativas)
+      if (itemsEl) {
+        const div = doc.createElement("div");
+        div.className = "item";
+        div.innerHTML = `
+          <div class="item-top">
+            <div class="qty">${qty}</div>
+            <div class="desc">${escapeHtml(name)}</div>
+            <div class="ltotal">${eurTicket(lineGross)}</div>
+          </div>
+        `;
+        itemsEl.appendChild(div);
+      }
+
+      // ✅ Totales/IVA:
+      // - Si es PARCIAL (original + DEV), solo contamos qty > 0
+      // - Si NO, contamos todo (incluye rectificativas negativas)
+      const includeInTotals = totalsOnlyPositive ? qty > 0 : true;
+      if (!includeInTotals) continue;
+
+      totalToShow += lineGross;
+
+      const divisor = 1 + rate / 100;
+      const lineBase = divisor > 0 ? lineGross / divisor : lineGross;
+      const lineIva = lineGross - lineBase;
+
+      if (!taxMap[rate]) taxMap[rate] = { base: 0, iva: 0 };
+      taxMap[rate].base += lineBase;
+      taxMap[rate].iva += lineIva;
+    }
+
+    // 7) Desglose IVA
+    const taxSummaryEl = doc.getElementById("taxSummary");
+    if (taxSummaryEl) taxSummaryEl.innerHTML = "";
+
+    const ratesSorted = Object.keys(taxMap)
+      .map((r) => Number(r))
+      .filter((r) => !isNaN(r) && r !== 0)
+      .sort((a, b) => a - b);
+
+    for (const r of ratesSorted) {
+      appendRow(
+        taxSummaryEl,
+        `Base Imponible ${r}%`,
+        eurTicket(taxMap[r].base)
+      );
+      appendRow(taxSummaryEl, `IVA ${r}%`, eurTicket(taxMap[r].iva));
+    }
+
+    // 8) Total + pagos (con nombres bonitos)
+    // Si NO has cambiado el HTML, esto al menos seguirá rellenando paymentMethod/paidAmount
+    setText(doc, "grandTotal", eurTicket(totalToShow));
+
+    // Pintar pagos como:
+    // Total 5,20
+    // Al contado 3,00
+    // Bizum 2,20
+    await renderPayments(doc, ticket, totalToShow);
+
+    const finalHtml = "<!doctype html>\n" + doc.documentElement.outerHTML;
+
+    const isCash = Array.isArray(ticket.pagos)
+      ? ticket.pagos.some(isCashPago)
+      : true;
+
+    const res = await window.TPV_PRINT.printTicket({
+      html: finalHtml,
+      deviceName: printerName,
+    });
+
+    if (!res || !res.ok) {
+      toast(
+        "No se pudo imprimir: " + (res?.error || "error desconocido"),
+        "err",
+        "Impresión"
+      );
+      return;
+    }
+
+    toast("Ticket impreso ✅", "ok", "Impresión");
+
+    // Abrir cajón solo si es efectivo y hay algo cobrado (>0)
+    if (isCash && Number(totalToShow) > 0) {
+      const drawer = await window.TPV_PRINT.openCashDrawer(printerName);
+      if (!drawer || !drawer.ok) {
+        toast(
+          "Ticket impreso, pero no se pudo abrir el cajón: " +
+            (drawer?.error || "error desconocido"),
+          "warn",
+          "Cajón"
+        );
+      }
+    }
+  } catch (e) {
+    console.error("[printTicket] error:", e);
+    toast("Error al imprimir: " + (e?.message || e), "err", "Impresión");
   }
 }
 
@@ -6943,20 +7032,26 @@ async function fetchRectificativasDeFacturaOriginal(idfacturaOriginal) {
 }
 
 async function buildRefundedQtyMapForOriginal(idfacturaOriginal) {
+  // Trae facturas rectificativas que apuntan a este original
   const rects = await fetchRectificativasDeFacturaOriginal(idfacturaOriginal);
 
-  // Mapa: key -> qtyDevuelta (en positivo)
-  const refunded = {};
+  const refunded = {}; // key -> qty devuelta (siempre en positivo)
 
-  for (const r of rects) {
-    const rid = Number(r.idfactura || 0);
+  for (const r of rects || []) {
+    const rid = Number(r?.idfactura || 0);
     if (!rid) continue;
 
     const lines = await fetchLineasFactura(rid);
-    for (const l of lines || []) {
-      const key = lineKeyForMatch(l.descripcion, l.pvpunitario, l.codimpuesto);
 
-      // En rectificativas tu cantidad va negativa. La pasamos a positivo
+    for (const l of lines || []) {
+      const key = lineKeyForMatch(
+        normalizeRefundDesc
+          ? normalizeRefundDesc(l.descripcion)
+          : l.descripcion,
+        l.pvpunitario,
+        l.codimpuesto
+      );
+
       const q = Math.abs(Number(l.cantidad || 0));
       if (!(q > 0)) continue;
 
@@ -7212,10 +7307,78 @@ function buildTicketFromFacturaRow(facturaRow, lineasFactura) {
   };
 }
 
+async function fetchPagosFacturaByCodigo(codigofactura) {
+  const code = String(codigofactura || "").trim();
+  if (!code) return [];
+
+  try {
+    const rows = await fetchApiResourceWithParams("reciboclientes", {
+      "filter[codigofactura]": code,
+      limit: 2000,
+      order: "asc",
+    });
+
+    const list = Array.isArray(rows) ? rows : [];
+
+    // Nos quedamos con {codpago, importe}
+    // y agrupamos por codpago por si hay varios recibos del mismo método
+    const grouped = {};
+    for (const r of list) {
+      const cod = String(r.codpago || "").trim() || "—";
+      const imp = Number(r.importe ?? 0) || 0;
+      if (!imp) continue;
+      grouped[cod] = (grouped[cod] || 0) + imp;
+    }
+
+    return Object.entries(grouped).map(([codpago, importe]) => ({
+      codpago,
+      importe,
+    }));
+  } catch (e) {
+    console.warn("[fetchPagosFacturaByCodigo] error:", e?.message || e);
+    return [];
+  }
+}
+
 async function imprimirFacturaHistorica(facturaRow) {
-  const id = facturaRow.idfactura;
+  console.log("[imprimirFacturaHistorica] raw:", facturaRow?._raw);
+
+  const id = Number(facturaRow?.idfactura || 0);
   const lineas = await fetchLineasFactura(id);
-  const ticket = buildTicketFromFacturaRow(facturaRow, lineas);
+
+  const ticketBase = buildTicketFromFacturaRow(facturaRow, lineas) || {};
+  const raw = facturaRow?._raw || facturaRow || {};
+
+  // 1) intentamos desglose real por recibos (si tenemos "codigo")
+  const codigo = String(
+    raw.codigo || facturaRow?.codigo || ticketBase?.numero || ""
+  ).trim();
+  let pagos = await fetchPagosFacturaByCodigo(codigo);
+
+  // 2) fallback: 1 sola línea si no hay recibos
+  if (!pagos.length) {
+    const cod = String(
+      raw.codpago || facturaRow?.codpago || ticketBase.paymentMethod || "—"
+    ).trim();
+    pagos = [
+      {
+        codpago: cod,
+        importe: Number(
+          raw.total ?? facturaRow?.total ?? ticketBase.total ?? 0
+        ),
+      },
+    ];
+  }
+
+  const ticket = {
+    ...ticketBase,
+    idfactura: id,
+    idfacturarect: Number(raw.idfacturarect || facturaRow?.idfacturarect || 0),
+    _raw: raw,
+    pagos, // ✅ aquí ya viene MULTI-método si existe
+  };
+
+  console.log("[imprimirFacturaHistorica] ticket.pagos:", ticket.pagos);
   await printTicket(ticket);
 }
 
@@ -7353,25 +7516,6 @@ function refundSelectNone() {
   renderRefundLines();
 }
 
-function lineKeyFS(l) {
-  const desc = String(l.descripcion || "")
-    .trim()
-    .toLowerCase();
-  const pvp = Number(l.pvpunitario || 0).toFixed(4);
-  const iva = String(l.iva ?? extractTaxRateFromCode(l.codimpuesto) ?? "");
-  return `${desc}__${pvp}__${iva}`;
-}
-
-async function fetchRectificativasDeOriginal(idOriginal) {
-  const data = await fetchApiResourceWithParams("facturaclientes", {
-    "filter[codserie]": "R",
-    "filter[idfacturarect]": idOriginal,
-    limit: 200,
-    order: "desc",
-  });
-  return Array.isArray(data) ? data : [];
-}
-
 async function openRefundForFactura(facturaRow) {
   const overlay = document.getElementById("refundOverlay");
   if (!overlay) {
@@ -7381,7 +7525,7 @@ async function openRefundForFactura(facturaRow) {
 
   const lineas = await fetchLineasFactura(facturaRow.idfactura);
 
-  // ✅ NUEVO: map de cantidades ya devueltas
+  // Map cantidades ya devueltas (por clave consistente)
   let refundedMap = {};
   try {
     refundedMap = await buildRefundedQtyMapForOriginal(facturaRow.idfactura);
@@ -7390,21 +7534,22 @@ async function openRefundForFactura(facturaRow) {
     refundedMap = {};
   }
 
-  // ✅ NUEVO: recalcular “cantidad pendiente” y filtrar líneas agotadas
+  // Recalcular pendiente y filtrar agotadas
   const lineasPendientes = (lineas || [])
     .map((l) => {
-      const key = keyForRefundMatch(
-        l.descripcion,
+      const key = lineKeyForMatch(
+        normalizeRefundDesc(l.descripcion),
         l.pvpunitario,
         l.codimpuesto
       );
+
       const sold = Number(l.cantidad || 0);
       const already = Number(refundedMap[key] || 0);
       const pending = Math.max(0, sold - already);
 
       return {
         ...l,
-        _remainingQty: pending, // ✅ esto lo usa renderRefundLines
+        _remainingQty: pending, // <-- lo usa renderRefundLines()
         __pendingQty: pending,
         __alreadyRefunded: already,
       };
@@ -7413,29 +7558,7 @@ async function openRefundForFactura(facturaRow) {
 
   refundState.factura = facturaRow;
   refundState.lineas = lineasPendientes;
-
-  // ✅ importante: empezar en 0 sobre lo pendiente
-  refundState.qtyByLineId = {};
-
-  // ✅ Traer todas las rectificativas de este ticket y sumar cantidades ya devueltas por "clave"
-  let refundedByKey = {};
-  try {
-    const rects = await fetchRectificativasDeOriginal(facturaRow.idfactura);
-
-    for (const r of rects) {
-      const rectLines = await fetchLineasFactura(r.idfactura);
-      (rectLines || []).forEach((rl) => {
-        const k = lineKeyFS(rl);
-        const q = Math.abs(Number(rl.cantidad || 0));
-        refundedByKey[k] = (refundedByKey[k] || 0) + q;
-      });
-    }
-  } catch (e) {
-    console.warn(
-      "No se pudieron cargar rectificativas para calcular restante:",
-      e
-    );
-  }
+  refundState.qtyByLineId = {}; // empezamos en 0
 
   // Cabecera
   const n = document.getElementById("refundTicketNum");
@@ -7449,7 +7572,7 @@ async function openRefundForFactura(facturaRow) {
   bindRefundLineClicks();
   renderRefundLines();
 
-  // binds botones
+  // Botones
   const x = document.getElementById("refundCloseX");
   const cancel = document.getElementById("refundCancelBtn");
   const all = document.getElementById("refundSelectAllBtn");
@@ -7460,34 +7583,21 @@ async function openRefundForFactura(facturaRow) {
   if (all) all.onclick = refundSelectAll;
   if (none) none.onclick = refundSelectNone;
 
-  const confirmBtn = document.getElementById("refundConfirmBtn"); // asegúrate que existe en HTML
-
+  const confirmBtn = document.getElementById("refundConfirmBtn");
   if (confirmBtn) {
     confirmBtn.onclick = async () => {
       try {
         confirmBtn.disabled = true;
 
-        // 1) Crear devolución en FS
-        const resp = await createRefundInFacturaScripts(
+        await createRefundInFacturaScripts(
           facturaRow,
           refundState.qtyByLineId,
           refundState.lineas
         );
 
         toast("Devolución creada ✅", "ok", "Devolución");
-
-        // 2) Cerrar modal
         overlay.classList.add("hidden");
-
-        // 3) Refrescar lista (para que aparezca la nueva factura rectificativa)
         await loadAndRenderTickets();
-
-        // 4) (Opcional) imprimir automáticamente la devolución:
-        // const doc = resp.doc || resp.factura || resp.data || resp;
-        // if (doc?.idfactura) {
-        //   const row = { ...facturaRow, idfactura: doc.idfactura, codigo: doc.codigo || null, total: doc.total || 0 };
-        //   await imprimirFacturaHistorica(row);
-        // }
       } catch (e) {
         console.error(e);
         toast("Error en devolución: " + (e?.message || e), "err", "Devolución");

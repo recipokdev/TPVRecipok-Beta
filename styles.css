@@ -2252,3 +2252,7 @@ body.modal-locked .cart-card {
   border: 1px solid #ffe69c;
   color: #7a5a00;
 }
+
+#paymentMethod {
+  white-space: pre-line;
+}
