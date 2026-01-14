@@ -4,6 +4,7 @@ const { autoUpdater } = require("electron-updater");
 const { execFile } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 
 let mainWin = null;
 let splashWin = null;
@@ -472,40 +473,68 @@ app.on("window-all-closed", () => {
 
 /*Abrir Cajon*/
 ipcMain.handle("tpv:openCashDrawer", async (_event, { deviceName }) => {
-  if (!deviceName) return { ok: false, error: "Falta deviceName" };
+  // En Windows: deviceName = nombre de impresora (como ya haces)
+  // En Linux: deviceName idealmente = ruta device (/dev/usb/lp0), o vacío para autodetect
 
-  const exePath = app.isPackaged
-    ? path.join(process.resourcesPath, "assets", "open-drawer.exe")
-    : path.join(__dirname, "assets", "open-drawer.exe");
-
-  if (!fs.existsSync(exePath)) {
-    return { ok: false, error: `No existe open-drawer.exe en: ${exePath}` };
-  }
-
-  const run = (pin) =>
+  const run = (cmdPath, args, opts = {}) =>
     new Promise((resolve) => {
-      execFile(
-        exePath,
-        [deviceName, String(pin)], // pin 0/1
-        { windowsHide: true },
-        (err, stdout, stderr) => {
-          if (err) {
-            resolve({
-              ok: false,
-              pin,
-              error: (stderr || err.message || String(err)).trim(),
-            });
-          } else {
-            resolve({ ok: true, pin, out: (stdout || "").trim() });
-          }
+      execFile(cmdPath, args, opts, (err, stdout, stderr) => {
+        if (err) {
+          resolve({
+            ok: false,
+            error: (stderr || err.message || String(err)).trim(),
+          });
+        } else {
+          resolve({ ok: true, out: (stdout || "").trim() });
         }
-      );
+      });
     });
 
-  // Intento pin 0 y si falla, pin 1
-  let r = await run(0);
-  if (!r.ok) r = await run(1);
-  return r;
+  if (process.platform === "win32") {
+    if (!deviceName) return { ok: false, error: "Falta deviceName" };
+
+    const exePath = app.isPackaged
+      ? path.join(process.resourcesPath, "assets", "open-drawer.exe")
+      : path.join(__dirname, "assets", "open-drawer.exe");
+
+    if (!fs.existsSync(exePath)) {
+      return { ok: false, error: `No existe open-drawer.exe en: ${exePath}` };
+    }
+
+    const tryPin = async (pin) => {
+      const r = await run(exePath, [deviceName, String(pin)], {
+        windowsHide: true,
+      });
+      return { ...r, pin };
+    };
+
+    let r = await tryPin(0);
+    if (!r.ok) r = await tryPin(1);
+    return r;
+  }
+
+  if (process.platform === "linux") {
+    const shPath = app.isPackaged
+      ? path.join(process.resourcesPath, "assets", "open-drawer.sh")
+      : path.join(__dirname, "assets", "open-drawer.sh");
+
+    if (!fs.existsSync(shPath)) {
+      return { ok: false, error: `No existe open-drawer.sh en: ${shPath}` };
+    }
+
+    // Linux: si deviceName viene vacío, el script autodetecta
+    const device = deviceName || "";
+    const tryPin = async (pin) => {
+      const r = await run("bash", [shPath, device, String(pin)], {});
+      return { ...r, pin };
+    };
+
+    let r = await tryPin(0);
+    if (!r.ok) r = await tryPin(1);
+    return r;
+  }
+
+  return { ok: false, error: `Sistema no soportado: ${process.platform}` };
 });
 
 /* Cola de sincronización */

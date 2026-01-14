@@ -8,7 +8,8 @@
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
-    "publish": "electron-builder --publish always"
+    "publish:win": "electron-builder --win --publish always",
+    "publish:linux": "electron-builder --linux --publish always"
   },
   "keywords": [],
   "author": "",
@@ -26,12 +27,6 @@
     "directories": {
       "output": "dist"
     },
-    "extraResources": [
-      {
-        "from": "assets/open-drawer.exe",
-        "to": "assets/open-drawer.exe"
-      }
-    ],
     "files": [
       "**/*",
       "!dist/**",
@@ -39,13 +34,25 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "extraResources": [
+        {
+          "from": "assets/open-drawer.exe",
+          "to": "assets/open-drawer.exe"
+        }
+      ]
     },
     "linux": {
       "target": [
         "AppImage"
       ],
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "extraResources": [
+        {
+          "from": "assets/open-drawer.sh",
+          "to": "assets/open-drawer.sh"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

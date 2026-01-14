@@ -4795,16 +4795,8 @@ async function printTicket(ticket) {
       now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
     const raw = ticket._raw || {};
     const codserie = String(raw.codserie || "").toUpperCase();
-    const isRect =
-      codserie === "R" ||
-      Number(ticket.idfacturarect || raw.idfacturarect || 0) > 0 ||
-      !!(raw.codigorect || ticket.codigorect);
-
-    setText(
-      doc,
-      "invoiceLabel",
-      isRect ? "Factura Rectificativa" : "Factura Simplificada"
-    );
+    let isRect = codserie === "R"; // de momento, solo por serie
+    let isFullyRefundedOriginal = false;
 
     setText(doc, "invoiceNumber", ticket.numero != null ? ticket.numero : "—");
     setText(doc, "ticketDate", `${fecha} ${hora}`);
@@ -4901,6 +4893,9 @@ async function printTicket(ticket) {
         totalsOnlyPositive = hasNeg && hasPos;
 
         lineas = rebuilt;
+        // ✅ si NO es rectificativa por serie (A/S/etc) pero tiene SOLO devoluciones (sin pendiente),
+        // entonces está devuelta al 100% y queremos etiquetarla como "Rectificativa"
+        isFullyRefundedOriginal = hasNeg && !hasPos;
       }
     } catch (e) {
       console.warn(
@@ -4908,6 +4903,17 @@ async function printTicket(ticket) {
         e
       );
     }
+
+    // ✅ decisión final del tipo de factura
+    if (!isRect && isFullyRefundedOriginal) {
+      isRect = true;
+    }
+
+    setText(
+      doc,
+      "invoiceLabel",
+      isRect ? "Factura Rectificativa" : "Factura Simplificada"
+    );
 
     // 6) Calcular IVA y totales
     let totalToShow = 0;
