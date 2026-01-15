@@ -13,7 +13,10 @@
     "publish:linux": "electron-builder --linux --publish always"
   },
   "keywords": [],
-  "author": "",
+  "author": {
+    "name": "Recipok",
+    "email": "soporte@recipok.com"
+  },
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
