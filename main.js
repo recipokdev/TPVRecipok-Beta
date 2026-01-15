@@ -810,6 +810,37 @@ ipcMain.handle("queue:error", async (_e, { id, error }) => {
   return { ok: true, nextRetryAt: q[idx].nextRetryAt };
 });
 
+ipcMain.handle("app:quit", async () => {
+  if (!mainWin || mainWin.isDestroyed()) return { ok: false };
+
+  let guards = { cashOpen: false, parkedCount: 0 };
+  try {
+    guards = await mainWin.webContents.executeJavaScript(
+      "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()"
+    );
+    guards = guards || { cashOpen: false, parkedCount: 0 };
+  } catch (_) {}
+
+  if (guards.cashOpen) {
+    mainWin.webContents.send("tpv:guard", {
+      title: "Terminal abierta",
+      text: "No puedes cerrar el programa hasta que cierres la caja.",
+    });
+    return { ok: false, reason: "cashOpen" };
+  }
+
+  if ((guards.parkedCount || 0) > 0) {
+    mainWin.webContents.send("tpv:guard", {
+      title: "Tickets aparcados",
+      text: "No puedes cerrar el programa hasta recuperar o eliminar los tickets aparcados.",
+    });
+    return { ok: false, reason: "parked" };
+  }
+
+  app.quit();
+  return { ok: true };
+});
+
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
 });

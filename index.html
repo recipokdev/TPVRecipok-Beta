@@ -1243,5 +1243,14 @@
     <script src="config.js"></script>
 
     <script src="renderer.js"></script>
+    <script>
+      window.addEventListener("keydown", (e) => {
+        const key = (e.key || "").toLowerCase();
+        if (e.ctrlKey && e.altKey && key === "q") {
+          e.preventDefault();
+          window.TPV_SYS?.quit?.();
+        }
+      });
+    </script>
   </body>
 </html>

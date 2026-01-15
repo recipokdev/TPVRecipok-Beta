@@ -1,3 +1,4 @@
-# TPV Recipok - permitir acceso al puerto de impresora/cajón (usblp/lp)
-KERNEL=="lp[0-9]*", MODE="0666"
+# TPV Recipok - permitir acceso a impresoras USB tipo /dev/usb/lp*
+SUBSYSTEM=="usb", KERNEL=="lp[0-9]*", MODE="0666"
+SUBSYSTEM=="usblp", KERNEL=="lp[0-9]*", MODE="0666"
 KERNEL=="usb/lp[0-9]*", MODE="0666"

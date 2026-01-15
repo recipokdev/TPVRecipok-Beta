@@ -26,3 +26,7 @@ contextBridge.exposeInMainWorld("TPV_QUEUE", {
   error: (id, error) => ipcRenderer.invoke("queue:error", { id, error }),
   list: () => ipcRenderer.invoke("queue:list"), // ✅ NUEVO
 });
+
+contextBridge.exposeInMainWorld("TPV_SYS", {
+  quit: () => ipcRenderer.invoke("app:quit"),
+});

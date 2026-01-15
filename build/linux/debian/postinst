@@ -77,24 +77,31 @@ chmod 644 "$DESKTOP_ENTRY" || true
 # ---- 6) Acceso directo en Escritorio (solo 1 cosa visible)
 DESK1="$REAL_HOME/Escritorio"
 DESK2="$REAL_HOME/Desktop"
+TARGET_DESK=""
 
-# limpia posibles nombres antiguos
-rm -f "$DESK1/TPV Recipok.desktop" "$DESK2/TPV Recipok.desktop" 2>/dev/null || true
+if [ -d "$DESK1" ]; then TARGET_DESK="$DESK1"; fi
+if [ -z "$TARGET_DESK" ] && [ -d "$DESK2" ]; then TARGET_DESK="$DESK2"; fi
 
-if [ -d "$DESK1" ]; then
-  cp -f "$DESKTOP_ENTRY" "$DESK1/TPV-Recipok.desktop" || true
-  chown "$REAL_USER:$REAL_USER" "$DESK1/TPV-Recipok.desktop" || true
-  chmod 755 "$DESK1/TPV-Recipok.desktop" || true
-  # marcar como "confiable" en GNOME si existe gio
+if [ -n "$TARGET_DESK" ]; then
+  DESK_FILE="$TARGET_DESK/TPV-Recipok.desktop"
+  cat > "$DESK_FILE" <<EOF
+[Desktop Entry]
+Type=Application
+Name=TPV Recipok
+Comment=Terminal punto de venta
+Exec=$APPIMAGE_PATH
+Icon=tpvrecipok
+Terminal=false
+Categories=Office;
+StartupNotify=false
+EOF
+
+  chown "$REAL_USER:$REAL_USER" "$DESK_FILE" || true
+  chmod 755 "$DESK_FILE" || true
+
+  # marcar como confiable si es posible
   if command -v gio >/dev/null 2>&1; then
-    gio set "$DESK1/TPV-Recipok.desktop" metadata::trusted true 2>/dev/null || true
-  fi
-elif [ -d "$DESK2" ]; then
-  cp -f "$DESKTOP_ENTRY" "$DESK2/TPV-Recipok.desktop" || true
-  chown "$REAL_USER:$REAL_USER" "$DESK2/TPV-Recipok.desktop" || true
-  chmod 755 "$DESK2/TPV-Recipok.desktop" || true
-  if command -v gio >/dev/null 2>&1; then
-    gio set "$DESK2/TPV-Recipok.desktop" metadata::trusted true 2>/dev/null || true
+    sudo -u "$REAL_USER" gio set "$DESK_FILE" metadata::trusted true 2>/dev/null || true
   fi
 fi
 
