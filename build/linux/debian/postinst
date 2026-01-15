@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -e
 
-# ---- 0) Detectar usuario real (cuando instalas con Ubuntu Software no siempre hay SUDO_USER)
-REAL_USER="${SUDO_USER:-}"
+APP_ID="tpvrecipok"
+APP_NAME="TPV Recipok"
+
+# ---------- 0) Detectar usuario real ----------
+REAL_USER="$(logname 2>/dev/null || true)"
+if [ -z "$REAL_USER" ]; then
+  REAL_USER="$(who | awk '$2 ~ /:/{print $1; exit}' 2>/dev/null || true)"
+fi
 if [ -z "$REAL_USER" ]; then
   REAL_USER="$(awk -F: '$3>=1000 && $1!="nobody"{print $1; exit}' /etc/passwd)"
 fi
@@ -12,16 +18,19 @@ if [ -z "$REAL_HOME" ] || [ ! -d "$REAL_HOME" ]; then
   exit 0
 fi
 
-# ---- 1) Dependencias (FUSE + curl)
+# ---------- 1) Dependencias ----------
+export DEBIAN_FRONTEND=noninteractive
 apt-get update || true
 apt-get install -y curl ca-certificates libfuse2 fuse cups cups-client || true
 
-# ---- 2) Regla udev del cajón/impresora
+# ---------- 2) Regla udev (si la mantienes) ----------
+# OJO: si ya vas a usar CUPS para cajón/impresión, esta regla puede sobrar.
 RULE_DST="/etc/udev/rules.d/99-tpvrecipok-cashdrawer.rules"
+RULE_SRC="/opt/TPV Recipok/resources/assets/udev/99-tpvrecipok-cashdrawer.rules"
 
-if [ -f "/opt/TPV Recipok/resources/assets/udev/99-tpvrecipok-cashdrawer.rules" ]; then
-  cp -f "/opt/TPV Recipok/resources/assets/udev/99-tpvrecipok-cashdrawer.rules" "$RULE_DST"
-  chmod 644 "$RULE_DST"
+if [ -f "$RULE_SRC" ]; then
+  cp -f "$RULE_SRC" "$RULE_DST" || true
+  chmod 644 "$RULE_DST" || true
 fi
 
 if command -v udevadm >/dev/null 2>&1; then
@@ -29,13 +38,14 @@ if command -v udevadm >/dev/null 2>&1; then
   udevadm trigger || true
 fi
 
-# ---- 3) Instalar icono del sistema (evita el engranaje)
+# ---------- 3) Instalar icono del sistema (evita engranaje) ----------
 ICON_SYS_DIR="/usr/share/icons/hicolor/256x256/apps"
-ICON_SYS_PATH="$ICON_SYS_DIR/tpvrecipok.png"
+ICON_SYS_PATH="${ICON_SYS_DIR}/${APP_ID}.png"
 mkdir -p "$ICON_SYS_DIR"
 
-if [ -f "/opt/TPV Recipok/resources/assets/icon.png" ]; then
-  cp -f "/opt/TPV Recipok/resources/assets/icon.png" "$ICON_SYS_PATH" || true
+ICON_SRC="/opt/TPV Recipok/resources/assets/icon.png"
+if [ -f "$ICON_SRC" ]; then
+  cp -f "$ICON_SRC" "$ICON_SYS_PATH" || true
   chmod 644 "$ICON_SYS_PATH" || true
 fi
 
@@ -43,12 +53,13 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -f /usr/share/icons/hicolor || true
 fi
 
-# ---- 4) Descargar AppImage latest (1 solo icono visible para el usuario)
-APP_DIR="$REAL_HOME/.local/share/tpvrecipok"
-APPIMAGE_PATH="$APP_DIR/TPV-Recipok.AppImage"
-mkdir -p "$APP_DIR"
+# ---------- 4) Descargar AppImage latest ----------
+APP_DIR="${REAL_HOME}/.local/share/${APP_ID}"
+APPIMAGE_ASSET="TPV-Recipok.AppImage"
+APPIMAGE_PATH="${APP_DIR}/${APPIMAGE_ASSET}"
+APPIMAGE_URL="https://github.com/recipokdev/TPVRecipok/releases/latest/download/${APPIMAGE_ASSET}"
 
-APPIMAGE_URL="https://github.com/recipokdev/TPVRecipok/releases/latest/download/TPV-Recipok.AppImage"
+mkdir -p "$APP_DIR"
 
 TMP="$(mktemp)"
 if curl -L --fail -o "$TMP" "$APPIMAGE_URL"; then
@@ -59,38 +70,37 @@ else
   rm -f "$TMP" || true
 fi
 
-# ---- 5) Desktop entry (menú del sistema) apuntando al AppImage
-DESKTOP_ENTRY="/usr/share/applications/tpvrecipok.desktop"
-cat > "$DESKTOP_ENTRY" <<EOF
+# ---------- 5) Desktop entry del sistema (menú) ----------
+DESKTOP_SYS="/usr/share/applications/${APP_ID}.desktop"
+cat > "$DESKTOP_SYS" <<EOF
 [Desktop Entry]
-Name=TPV Recipok
+Name=${APP_NAME}
 Comment=Terminal punto de venta
-Exec="${APPIMAGE_PATH}"
-Icon=tpvrecipok
+Exec=${APPIMAGE_PATH}
+Icon=${APP_ID}
 Terminal=false
 Type=Application
 Categories=Office;
 StartupNotify=false
 EOF
-chmod 644 "$DESKTOP_ENTRY" || true
+chmod 644 "$DESKTOP_SYS" || true
 
-# ---- 6) Acceso directo en Escritorio (solo 1 cosa visible)
-DESK1="$REAL_HOME/Escritorio"
-DESK2="$REAL_HOME/Desktop"
+# ---------- 6) Acceso directo en Escritorio (1 icono) ----------
+DESK1="${REAL_HOME}/Escritorio"
+DESK2="${REAL_HOME}/Desktop"
 TARGET_DESK=""
-
 if [ -d "$DESK1" ]; then TARGET_DESK="$DESK1"; fi
 if [ -z "$TARGET_DESK" ] && [ -d "$DESK2" ]; then TARGET_DESK="$DESK2"; fi
 
 if [ -n "$TARGET_DESK" ]; then
-  DESK_FILE="$TARGET_DESK/TPV-Recipok.desktop"
+  DESK_FILE="${TARGET_DESK}/TPV-Recipok.desktop"
   cat > "$DESK_FILE" <<EOF
 [Desktop Entry]
 Type=Application
-Name=TPV Recipok
+Name=${APP_NAME}
 Comment=Terminal punto de venta
-Exec="${APPIMAGE_PATH}"
-Icon=tpvrecipok
+Exec=${APPIMAGE_PATH}
+Icon=${APP_ID}
 Terminal=false
 Categories=Office;
 StartupNotify=false
@@ -99,27 +109,33 @@ EOF
   chown "$REAL_USER:$REAL_USER" "$DESK_FILE" || true
   chmod 755 "$DESK_FILE" || true
 
-  # marcar como confiable si es posible
+  # marcar como "confiable" en GNOME
   if command -v gio >/dev/null 2>&1; then
-    sudo -u "$REAL_USER" gio set "$DESK_FILE" metadata::trusted true 2>/dev/null || true
+    runuser -u "$REAL_USER" -- gio set "$DESK_FILE" metadata::trusted true 2>/dev/null || true
   fi
 fi
 
-# ---- 7) Autoarranque (al iniciar sesión)
-AUTOSTART_DIR="$REAL_HOME/.config/autostart"
+# ---------- 7) Autoarranque (al iniciar sesión) ----------
+AUTOSTART_DIR="${REAL_HOME}/.config/autostart"
+AUTOSTART_FILE="${AUTOSTART_DIR}/${APP_ID}.desktop"
 mkdir -p "$AUTOSTART_DIR"
 
-cat > "$AUTOSTART_DIR/tpvrecipok.desktop" <<EOF
+cat > "$AUTOSTART_FILE" <<EOF
 [Desktop Entry]
 Type=Application
-Name=TPV Recipok
-Exec="${APPIMAGE_PATH}"
-Icon=tpvrecipok
+Name=${APP_NAME}
+Exec=${APPIMAGE_PATH}
+Icon=${APP_ID}
 X-GNOME-Autostart-enabled=true
 Terminal=false
 EOF
 
-chown "$REAL_USER:$REAL_USER" "$AUTOSTART_DIR/tpvrecipok.desktop" || true
-chmod 644 "$AUTOSTART_DIR/tpvrecipok.desktop" || true
+chown "$REAL_USER:$REAL_USER" "$AUTOSTART_FILE" || true
+chmod 644 "$AUTOSTART_FILE" || true
+
+# ---------- 8) Actualizar base de datos de desktop ----------
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database >/dev/null 2>&1 || true
+fi
 
 exit 0

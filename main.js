@@ -1,12 +1,11 @@
 // main.js
 const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const { autoUpdater } = require("electron-updater");
-const { execFile } = require("child_process");
+const { execFile, spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { globalShortcut } = require("electron");
-const { execFile, spawn } = require("child_process");
 
 let mainWin = null;
 let splashWin = null;
@@ -762,24 +761,6 @@ ipcMain.handle("tpv:openCashDrawer", async (_event, { deviceName }) => {
 
   return { ok: false, error: `Sistema no soportado: ${process.platform}` };
 });
-
-const { spawn } = require("child_process");
-
-function lpRaw(deviceName, buffer) {
-  return new Promise((resolve) => {
-    const p = spawn("lp", ["-d", deviceName, "-o", "raw"], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    let err = "";
-    p.stderr.on("data", (d) => (err += d.toString()));
-    p.on("close", (code) => {
-      if (code === 0) resolve({ ok: true });
-      else resolve({ ok: false, error: err || `lp exited ${code}` });
-    });
-    p.stdin.write(buffer);
-    p.stdin.end();
-  });
-}
 
 /* Cola de sincronización */
 ipcMain.handle("queue:enqueue", async (_e, item) => {
