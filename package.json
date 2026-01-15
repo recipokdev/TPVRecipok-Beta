@@ -59,7 +59,7 @@
       ]
     },
     "deb": {
-      "afterInstall": "linux/after-install.sh"
+      "afterInstall": "build/linux/after-install.sh"
     },
     "nsis": {
       "oneClick": false,
