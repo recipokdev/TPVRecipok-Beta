@@ -5627,6 +5627,73 @@ function calcChange() {
   return Math.max(0, sumPagos() - payModalState.total);
 }
 
+function clampNonCashValue(codEdited) {
+  const total = Number(payModalState.total || 0);
+
+  // suma efectivo "entregado" (puede exceder)
+  let cashGiven = 0;
+  // suma no-efectivo (tarjeta/bizum/etc)
+  let nonCashSum = 0;
+
+  for (const fp of payModalState.formas) {
+    const cod = fp.codpago;
+    const v = parseEuroStr(payModalState.values[cod] || "");
+    if (isCashPago({ codpago: cod, descripcion: fp.descripcion }))
+      cashGiven += v;
+    else nonCashSum += v;
+  }
+
+  cashGiven = Number(cashGiven.toFixed(2));
+  nonCashSum = Number(nonCashSum.toFixed(2));
+
+  // máximo total permitido para NO efectivo:
+  // total - min(efectivo_entregado, total)
+  const maxNonCashTotal = Math.max(0, total - Math.min(cashGiven, total));
+
+  // Si no nos pasamos, ok
+  if (nonCashSum <= maxNonCashTotal + 1e-9) return;
+
+  // Necesitamos recortar "algo".
+  // Regla: recortamos el que se está editando si es no-cash.
+  const editedIsCash = isCashPago({
+    codpago: codEdited,
+    descripcion:
+      payModalState.formas.find((x) => x.codpago === codEdited)?.descripcion ||
+      "",
+  });
+
+  let targetCod = null;
+
+  if (!editedIsCash) {
+    targetCod = codEdited;
+  } else {
+    // si estabas tocando efectivo, recortamos el último no-cash con valor > 0
+    const rev = payModalState.formas.slice().reverse();
+    const lastNonCash = rev.find((fp) => {
+      const cod = fp.codpago;
+      if (isCashPago({ codpago: cod, descripcion: fp.descripcion }))
+        return false;
+      return parseEuroStr(payModalState.values[cod] || "") > 0;
+    });
+    targetCod = lastNonCash ? lastNonCash.codpago : null;
+  }
+
+  if (!targetCod) return;
+
+  // cuánto nos pasamos
+  const excess = nonCashSum - maxNonCashTotal;
+
+  const cur = parseEuroStr(payModalState.values[targetCod] || "");
+  const newVal = Math.max(0, cur - excess);
+
+  payModalState.values[targetCod] = euro2(newVal);
+
+  const inp = payMethodsList
+    ? payMethodsList.querySelector(`.pay-amount[data-codpago="${targetCod}"]`)
+    : null;
+  if (inp) inp.value = payModalState.values[targetCod];
+}
+
 function setPayError(msg) {
   if (!payErrorEl) return;
   payErrorEl.textContent = msg || "";
@@ -5688,13 +5755,17 @@ function renderPayMethods() {
     inp.addEventListener("click", () => selectPayInput(fp.codpago));
 
     inp.addEventListener("input", () => {
-      // sanea: solo números y un separador decimal
       const raw = inp.value;
       const cleaned = raw
         .replace(/[^0-9.,]/g, "")
-        .replace(/(.*)[.,](.*)[.,].*/g, "$1.$2"); // evita 2 decimales
+        .replace(/(.*)[.,](.*)[.,].*/g, "$1.$2");
       inp.value = cleaned;
+
       payModalState.values[fp.codpago] = cleaned;
+
+      // ✅ CLAMP: tarjeta/bizum/etc nunca superan el pendiente
+      clampNonCashValue(fp.codpago);
+
       renderPayHeaderTotals();
       setPayError("");
     });
@@ -5800,6 +5871,9 @@ function payKeyAppend(ch) {
     : null;
   if (inp) inp.value = v;
 
+  // ✅ CLAMP también desde keypad
+  clampNonCashValue(cod);
+
   renderPayHeaderTotals();
   setPayError("");
 }
@@ -5816,6 +5890,9 @@ function payKeyBackspace() {
     ? payMethodsList.querySelector(`.pay-amount[data-codpago="${cod}"]`)
     : null;
   if (inp) inp.value = v;
+
+  // ✅ CLAMP también desde keypad
+  clampNonCashValue(cod);
 
   renderPayHeaderTotals();
   setPayError("");
@@ -5901,35 +5978,99 @@ async function openPayModal(total) {
       paySaveBtn.onclick = () => {
         setPayError("");
 
-        const pagos = [];
+        // 1) Construimos "entregado" desde inputs
+        const entregados = [];
         for (const fp of payModalState.formas) {
           const raw = String(payModalState.values[fp.codpago] || "").trim();
           const val = parseEuroStr(raw);
           if (val > 0) {
-            pagos.push({
+            entregados.push({
               codpago: fp.codpago,
               descripcion: fp.descripcion,
-              importe: Number(euro2(val)),
+              entregado: Number(euro2(val)), // lo que el cliente "da" en ese método
             });
           }
         }
 
-        if (!pagos.length) {
+        if (!entregados.length) {
           setPayError("Introduce un importe en alguna forma de pago.");
           return;
         }
 
-        const pagado = pagos.reduce((s, p) => s + (p.importe || 0), 0);
-        if (pagado + 0.00001 < payModalState.total) {
+        const total = Number(payModalState.total || 0);
+
+        // 2) Suma entregado total (sirve para validar que se cubre el total)
+        const pagadoEntregado = entregados.reduce(
+          (s, p) => s + (p.entregado || 0),
+          0
+        );
+
+        if (pagadoEntregado + 0.00001 < total) {
           setPayError("El importe pagado es inferior al total.");
           return;
         }
 
+        // 3) Separar no-cash (aplicado=entregado) y cash (entregado puede exceder)
+        const nonCash = [];
+        const cash = [];
+
+        for (const p of entregados) {
+          const isCash = isCashPago({
+            codpago: p.codpago,
+            descripcion: p.descripcion,
+          });
+          if (isCash) cash.push(p);
+          else nonCash.push(p);
+        }
+
+        const nonCashSum = Number(
+          nonCash.reduce((s, p) => s + p.entregado, 0).toFixed(2)
+        );
+
+        // cash aplicado = lo que falta después del no-cash
+        let cashNeeded = Number(Math.max(0, total - nonCashSum).toFixed(2));
+
+        // cash entregado total (puede ser mayor)
+        const cashGiven = Number(
+          cash.reduce((s, p) => s + p.entregado, 0).toFixed(2)
+        );
+
+        // cambio sale solo del cash
+        const cambio = Number(Math.max(0, cashGiven - cashNeeded).toFixed(2));
+
+        // 4) Construimos pagos APLICADOS:
+        //    - no-cash: importe = entregado (ya viene clamped)
+        //    - cash: importe = distribuimos cashNeeded en el orden de métodos cash
+        const pagos = [];
+
+        // no-cash
+        for (const p of nonCash) {
+          pagos.push({
+            codpago: p.codpago,
+            descripcion: p.descripcion,
+            importe: Number(p.entregado.toFixed(2)), // ✅ APLICADO
+            entregado: Number(p.entregado.toFixed(2)),
+          });
+        }
+
+        // cash distribuido
+        for (const p of cash) {
+          const aplicado = Number(Math.min(p.entregado, cashNeeded).toFixed(2));
+          cashNeeded = Number((cashNeeded - aplicado).toFixed(2));
+
+          pagos.push({
+            codpago: p.codpago,
+            descripcion: p.descripcion,
+            importe: aplicado, // ✅ APLICADO (lo que cuenta como venta)
+            entregado: Number(p.entregado.toFixed(2)), // lo que dio el cliente
+          });
+        }
+
         const result = {
-          pagos,
-          total: payModalState.total,
-          pagado,
-          cambio: calcChange(),
+          pagos, // ✅ ya son importes aplicados
+          total,
+          pagado: pagadoEntregado, // entregado total (para UI si lo quieres)
+          cambio, // ✅ cambio correcto
           observaciones: payObs ? String(payObs.value || "") : "",
           numero: payNumber ? String(payNumber.value || "") : "",
           serie: paySerie ? String(paySerie.value || "") : "",

@@ -1,6 +1,6 @@
 {
   "name": "tpvrecipok",
-  "version": "0.1.10",
+  "version": "0.1.1",
   "description": "",
   "main": "main.js",
   "scripts": {
@@ -8,6 +8,7 @@
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
+    "publish": "electron-builder --publish always",
     "publish:win": "electron-builder --win --publish always",
     "publish:linux": "electron-builder --linux --publish always"
   },
@@ -25,7 +26,8 @@
     "productName": "TPV Recipok",
     "icon": "assets/icon.ico",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
       "**/*",
@@ -44,15 +46,20 @@
     },
     "linux": {
       "target": [
+        "deb",
         "AppImage"
       ],
       "icon": "assets/icon.png",
+      "category": "Office",
       "extraResources": [
         {
-          "from": "assets/open-drawer.sh",
-          "to": "assets/open-drawer.sh"
+          "from": "assets/udev/99-tpvrecipok-cashdrawer.rules",
+          "to": "assets/udev/99-tpvrecipok-cashdrawer.rules"
         }
       ]
+    },
+    "deb": {
+      "afterInstall": "linux/after-install.sh"
     },
     "nsis": {
       "oneClick": false,

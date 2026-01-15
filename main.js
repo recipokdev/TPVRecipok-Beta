@@ -472,23 +472,62 @@ app.on("window-all-closed", () => {
 });
 
 /*Abrir Cajon*/
-ipcMain.handle("tpv:openCashDrawer", async (_event, { deviceName }) => {
-  // En Windows: deviceName = nombre de impresora (como ya haces)
-  // En Linux: deviceName idealmente = ruta device (/dev/usb/lp0), o vacío para autodetect
+function cashDrawerConfigPath() {
+  return path.join(app.getPath("userData"), "cashdrawer.json");
+}
 
-  const run = (cmdPath, args, opts = {}) =>
-    new Promise((resolve) => {
-      execFile(cmdPath, args, opts, (err, stdout, stderr) => {
-        if (err) {
-          resolve({
-            ok: false,
-            error: (stderr || err.message || String(err)).trim(),
-          });
-        } else {
-          resolve({ ok: true, out: (stdout || "").trim() });
-        }
+function readCashDrawerConfig() {
+  try {
+    const p = cashDrawerConfigPath();
+    if (!fs.existsSync(p)) return null;
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function writeCashDrawerConfig(cfg) {
+  try {
+    fs.writeFileSync(
+      cashDrawerConfigPath(),
+      JSON.stringify(cfg, null, 2),
+      "utf8"
+    );
+  } catch (_) {}
+}
+
+function escposOpenDrawerBuffer(pin = 0, t1 = 25, t2 = 250) {
+  const m = pin === 1 ? 1 : 0;
+  const a = Math.max(0, Math.min(255, Number(t1) || 25));
+  const b = Math.max(0, Math.min(255, Number(t2) || 250));
+  return Buffer.from([0x1b, 0x70, m, a, b]);
+}
+
+function listUsbLpCandidates() {
+  const out = [];
+  for (let i = 0; i < 16; i++) {
+    const p = `/dev/usb/lp${i}`;
+    if (fs.existsSync(p)) out.push(p);
+  }
+  return out;
+}
+
+async function tryWriteToDevice(devPath, buf) {
+  return await new Promise((resolve) => {
+    fs.open(devPath, "w", (err, fd) => {
+      if (err) return resolve({ ok: false, error: err.message });
+      fs.write(fd, buf, 0, buf.length, null, (err2) => {
+        fs.close(fd, () => {});
+        if (err2) return resolve({ ok: false, error: err2.message });
+        resolve({ ok: true });
       });
     });
+  });
+}
+
+ipcMain.handle("tpv:openCashDrawer", async (_event, { deviceName }) => {
+  // Windows: deviceName = nombre impresora
+  // Linux: deviceName opcional (si viene vacío, autodetecta)
 
   if (process.platform === "win32") {
     if (!deviceName) return { ok: false, error: "Falta deviceName" };
@@ -501,37 +540,92 @@ ipcMain.handle("tpv:openCashDrawer", async (_event, { deviceName }) => {
       return { ok: false, error: `No existe open-drawer.exe en: ${exePath}` };
     }
 
-    const tryPin = async (pin) => {
-      const r = await run(exePath, [deviceName, String(pin)], {
-        windowsHide: true,
+    const runPin = (pin) =>
+      new Promise((resolve) => {
+        execFile(
+          exePath,
+          [deviceName, String(pin)],
+          { windowsHide: true },
+          (err, stdout, stderr) => {
+            if (err) {
+              resolve({
+                ok: false,
+                pin,
+                error: (stderr || err.message || String(err)).trim(),
+              });
+            } else {
+              resolve({ ok: true, pin, out: (stdout || "").trim() });
+            }
+          }
+        );
       });
-      return { ...r, pin };
-    };
 
-    let r = await tryPin(0);
-    if (!r.ok) r = await tryPin(1);
+    let r = await runPin(0);
+    if (!r.ok) r = await runPin(1);
     return r;
   }
 
   if (process.platform === "linux") {
-    const shPath = app.isPackaged
-      ? path.join(process.resourcesPath, "assets", "open-drawer.sh")
-      : path.join(__dirname, "assets", "open-drawer.sh");
+    // 1) Si ya guardamos un device válido para este cliente, probarlo primero
+    const saved = readCashDrawerConfig();
+    const preferred =
+      saved?.device && fs.existsSync(saved.device) ? [saved.device] : [];
 
-    if (!fs.existsSync(shPath)) {
-      return { ok: false, error: `No existe open-drawer.sh en: ${shPath}` };
+    // 2) Si el frontend nos pasó un device explícito, lo probamos
+    const explicit =
+      deviceName &&
+      typeof deviceName === "string" &&
+      deviceName.startsWith("/dev/")
+        ? [deviceName]
+        : [];
+
+    // 3) Autodetección /dev/usb/lp*
+    const candidates = [
+      ...new Set([...explicit, ...preferred, ...listUsbLpCandidates()]),
+    ];
+
+    if (candidates.length === 0) {
+      return {
+        ok: false,
+        error: "No se detectó /dev/usb/lp*. ¿Está conectado el cajón?",
+      };
     }
 
-    // Linux: si deviceName viene vacío, el script autodetecta
-    const device = deviceName || "";
-    const tryPin = async (pin) => {
-      const r = await run("bash", [shPath, device, String(pin)], {});
-      return { ...r, pin };
+    const tryPin = async (dev, pin) => {
+      const buf = escposOpenDrawerBuffer(pin, 25, 250);
+      const r = await tryWriteToDevice(dev, buf);
+      return { ...r, dev, pin };
     };
 
-    let r = await tryPin(0);
-    if (!r.ok) r = await tryPin(1);
-    return r;
+    for (const dev of candidates) {
+      // prueba pin 0 y luego pin 1
+      let r = await tryPin(dev, 0);
+      if (!r.ok) r = await tryPin(dev, 1);
+
+      if (r.ok) {
+        // Guardar para este cliente/instalación
+        writeCashDrawerConfig({
+          device: dev,
+          lastOkAt: new Date().toISOString(),
+        });
+        return { ok: true, device: dev, pin: r.pin };
+      }
+
+      // si fue permiso denegado, damos pista útil
+      if ((r.error || "").toLowerCase().includes("permission denied")) {
+        return {
+          ok: false,
+          error:
+            `Permiso denegado al abrir ${dev}. ` +
+            `En Ubuntu esto se soluciona instalando el .deb (incluye regla udev).`,
+        };
+      }
+    }
+
+    return {
+      ok: false,
+      error: `No se pudo abrir el cajón probando: ${candidates.join(", ")}`,
+    };
   }
 
   return { ok: false, error: `Sistema no soportado: ${process.platform}` };
