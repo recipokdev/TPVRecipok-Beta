@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 set -e
 
-# Al desinstalar, quitamos la regla udev
-RULE_DST="/etc/udev/rules.d/99-tpvrecipok-cashdrawer.rules"
-rm -f "$RULE_DST" || true
-
+# udev rule
+rm -f /etc/udev/rules.d/99-tpvrecipok-cashdrawer.rules || true
 if command -v udevadm >/dev/null 2>&1; then
   udevadm control --reload-rules || true
   udevadm trigger || true
+fi
+
+# system desktop entry
+rm -f /usr/share/applications/tpvrecipok.desktop || true
+
+# system icon
+rm -f /usr/share/icons/hicolor/256x256/apps/tpvrecipok.png || true
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -f /usr/share/icons/hicolor || true
 fi
 
 exit 0

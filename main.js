@@ -5,6 +5,7 @@ const { execFile } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const { globalShortcut } = require("electron");
 
 let mainWin = null;
 let splashWin = null;
@@ -36,8 +37,7 @@ function createWindow() {
     kiosk: true,
     autoHideMenuBar: true,
     alwaysOnTop: true,
-    width: 1366,
-    height: 768,
+    frame: false,
     show: false,
     icon: path.join(__dirname, "assets", "icon.png"),
     webPreferences: {
@@ -469,12 +469,22 @@ if (process.platform === "linux") {
 app.whenReady().then(async () => {
   await runAutoUpdateGate();
 
-  createWindow(); // ✅ creas la ventana principal
-  closeSplash(); // ✅ ahora ya puedes matar el splash sin que la app se cierre
+  createWindow();
+  registerShortcuts(); // ✅ AQUÍ (después de createWindow)
+
+  closeSplash();
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+      registerShortcuts(); // ✅ por si se recrea ventana
+    }
   });
+});
+
+app.setLoginItemSettings({
+  openAtLogin: true,
+  openAsHidden: false,
 });
 
 app.on("window-all-closed", () => {
@@ -511,6 +521,43 @@ function escposOpenDrawerBuffer(pin = 0, t1 = 25, t2 = 250) {
   const a = Math.max(0, Math.min(255, Number(t1) || 25));
   const b = Math.max(0, Math.min(255, Number(t2) || 250));
   return Buffer.from([0x1b, 0x70, m, a, b]);
+}
+
+function registerShortcuts() {
+  // Evita doble registro si reinicias ventana, etc.
+  globalShortcut.unregisterAll();
+
+  const ok = globalShortcut.register("Control+Alt+Q", async () => {
+    if (!mainWin || mainWin.isDestroyed()) return;
+
+    let guards = { cashOpen: false, parkedCount: 0 };
+    try {
+      guards = await mainWin.webContents.executeJavaScript(
+        "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()"
+      );
+      guards = guards || { cashOpen: false, parkedCount: 0 };
+    } catch (_) {}
+
+    if (guards.cashOpen) {
+      mainWin.webContents.send("tpv:guard", {
+        title: "Terminal abierta",
+        text: "No puedes cerrar el programa hasta que cierres la caja.",
+      });
+      return;
+    }
+
+    if ((guards.parkedCount || 0) > 0) {
+      mainWin.webContents.send("tpv:guard", {
+        title: "Tickets aparcados",
+        text: "No puedes cerrar el programa hasta recuperar o eliminar los tickets aparcados.",
+      });
+      return;
+    }
+
+    app.quit();
+  });
+
+  if (!ok) console.log("No se pudo registrar Control+Alt+Q");
 }
 
 function listCashDrawerCandidatesLinux() {
@@ -761,4 +808,8 @@ ipcMain.handle("queue:error", async (_e, { id, error }) => {
 
   writeQueue(q);
   return { ok: true, nextRetryAt: q[idx].nextRetryAt };
+});
+
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
 });
