@@ -65,7 +65,7 @@ cat > "$DESKTOP_ENTRY" <<EOF
 [Desktop Entry]
 Name=TPV Recipok
 Comment=Terminal punto de venta
-Exec=$APPIMAGE_PATH
+Exec="${APPIMAGE_PATH}"
 Icon=tpvrecipok
 Terminal=false
 Type=Application
@@ -89,7 +89,7 @@ if [ -n "$TARGET_DESK" ]; then
 Type=Application
 Name=TPV Recipok
 Comment=Terminal punto de venta
-Exec=$APPIMAGE_PATH
+Exec="${APPIMAGE_PATH}"
 Icon=tpvrecipok
 Terminal=false
 Categories=Office;
@@ -113,7 +113,7 @@ cat > "$AUTOSTART_DIR/tpvrecipok.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=TPV Recipok
-Exec=$APPIMAGE_PATH
+Exec="${APPIMAGE_PATH}"
 Icon=tpvrecipok
 X-GNOME-Autostart-enabled=true
 Terminal=false
