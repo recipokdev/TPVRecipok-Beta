@@ -14,7 +14,7 @@ fi
 
 # ---- 1) Dependencias (FUSE + curl)
 apt-get update || true
-apt-get install -y curl libfuse2 fuse || true
+apt-get install -y curl ca-certificates libfuse2 fuse cups cups-client || true
 
 # ---- 2) Regla udev del cajón/impresora
 RULE_DST="/etc/udev/rules.d/99-tpvrecipok-cashdrawer.rules"

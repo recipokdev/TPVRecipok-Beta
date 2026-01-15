@@ -4317,6 +4317,16 @@ async function handleOpenDrawerClick(btn) {
   }
 }
 
+const optionsQuitBtn = document.getElementById("optionsQuitBtn");
+
+optionsQuitBtn?.addEventListener("click", async () => {
+  try {
+    await window.TPV_APP.attemptQuit();
+  } catch (e) {
+    console.warn(e);
+  }
+});
+
 // Opciones
 optionsOpenDrawerBtn?.addEventListener("click", () =>
   handleOpenDrawerClick(optionsOpenDrawerBtn)

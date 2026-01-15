@@ -30,3 +30,8 @@ contextBridge.exposeInMainWorld("TPV_QUEUE", {
 contextBridge.exposeInMainWorld("TPV_SYS", {
   quit: () => ipcRenderer.invoke("app:quit"),
 });
+
+contextBridge.exposeInMainWorld("TPV_APP", {
+  getGuards: () => ipcRenderer.invoke("tpv:getGuards"),
+  attemptQuit: () => ipcRenderer.invoke("tpv:attemptQuit"),
+});

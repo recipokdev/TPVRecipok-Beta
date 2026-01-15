@@ -6,6 +6,7 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { globalShortcut } = require("electron");
+const { execFile, spawn } = require("child_process");
 
 let mainWin = null;
 let splashWin = null;
@@ -27,6 +28,72 @@ function readQueue() {
 function writeQueue(items) {
   const p = queueFilePath();
   fs.writeFileSync(p, JSON.stringify(items, null, 2), "utf8");
+}
+
+function lpRaw(deviceName, buffer) {
+  return new Promise((resolve) => {
+    if (!deviceName) return resolve({ ok: false, error: "Falta deviceName" });
+
+    const p = spawn("lp", ["-d", deviceName, "-o", "raw"], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    let stderr = "";
+    p.stderr.on("data", (d) => (stderr += d.toString()));
+
+    p.on("close", (code) => {
+      if (code === 0) resolve({ ok: true });
+      else
+        resolve({ ok: false, error: (stderr || `lp exited ${code}`).trim() });
+    });
+
+    p.stdin.write(buffer);
+    p.stdin.end();
+  });
+}
+
+function lpPdf(deviceName, pdfPath) {
+  return new Promise((resolve) => {
+    if (!deviceName) return resolve({ ok: false, error: "Falta deviceName" });
+
+    const p = spawn("lp", ["-d", deviceName, pdfPath], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stderr = "";
+    p.stderr.on("data", (d) => (stderr += d.toString()));
+
+    p.on("close", (code) => {
+      if (code === 0) resolve({ ok: true });
+      else
+        resolve({ ok: false, error: (stderr || `lp exited ${code}`).trim() });
+    });
+  });
+}
+
+async function renderTicketPdf(html) {
+  const win = new BrowserWindow({
+    show: false,
+    webPreferences: { contextIsolation: true, sandbox: false },
+  });
+
+  const dataUrl = "data:text/html;charset=utf-8," + encodeURIComponent(html);
+  await win.loadURL(dataUrl);
+
+  // Importantísimo: respetar @page size del CSS
+  const pdf = await win.webContents.printToPDF({
+    printBackground: true,
+    preferCSSPageSize: true,
+  });
+
+  const tmpDir = app.getPath("temp");
+  const pdfPath = path.join(tmpDir, `tpv-ticket-${Date.now()}.pdf`);
+  fs.writeFileSync(pdfPath, pdf);
+
+  try {
+    win.close();
+  } catch (_) {}
+  return pdfPath;
 }
 
 function createWindow() {
@@ -426,38 +493,56 @@ ipcMain.handle("printers:list", async () => {
 });
 
 // --- IPC: imprimir silencioso en una impresora concreta ---
-ipcMain.handle("ticket:print", async (event, { html, deviceName }) => {
+ipcMain.handle("ticket:print", async (_event, { html, deviceName }) => {
   if (!html) return { ok: false, error: "Falta html" };
   if (!deviceName) return { ok: false, error: "Falta deviceName" };
 
-  let win = null;
-  try {
-    win = await createHiddenPrintWindow(html);
-
-    const result = await new Promise((resolve) => {
-      win.webContents.print(
-        { silent: true, deviceName, printBackground: true },
-        (success, failureReason) => {
-          if (!success)
-            resolve({
-              ok: false,
-              error: failureReason || "No se pudo imprimir",
-            });
-          else resolve({ ok: true });
-        }
-      );
-    });
-
-    return result;
-  } catch (e) {
-    return { ok: false, error: e?.message || String(e) };
-  } finally {
-    if (win) {
-      try {
-        win.close();
-      } catch (_) {}
+  // Windows: puedes mantener tu print silencioso actual
+  if (process.platform === "win32") {
+    let win = null;
+    try {
+      win = await createHiddenPrintWindow(html);
+      const result = await new Promise((resolve) => {
+        win.webContents.print(
+          { silent: true, deviceName, printBackground: true },
+          (success, failureReason) => {
+            if (!success)
+              resolve({
+                ok: false,
+                error: failureReason || "No se pudo imprimir",
+              });
+            else resolve({ ok: true });
+          }
+        );
+      });
+      return result;
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    } finally {
+      if (win) {
+        try {
+          win.close();
+        } catch (_) {}
+      }
     }
   }
+
+  // Linux: PDF con tamaño ticket + lp
+  if (process.platform === "linux") {
+    try {
+      const pdfPath = await renderTicketPdf(html);
+      const r = await lpPdf(deviceName, pdfPath);
+      // limpieza best-effort
+      try {
+        fs.unlinkSync(pdfPath);
+      } catch (_) {}
+      return r;
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  }
+
+  return { ok: false, error: `Sistema no soportado: ${process.platform}` };
 });
 
 if (process.platform === "linux") {
@@ -632,74 +717,69 @@ ipcMain.handle("tpv:openCashDrawer", async (_event, { deviceName }) => {
   }
 
   if (process.platform === "linux") {
-    // 1) Si ya guardamos un device válido para este cliente, probarlo primero
-    const saved = readCashDrawerConfig();
-    const preferred =
-      saved?.device && fs.existsSync(saved.device) ? [saved.device] : [];
+    // En Linux abrimos cajón vía CUPS RAW usando el nombre de impresora (deviceName)
+    if (!deviceName) {
+      return { ok: false, error: "Falta deviceName (nombre de impresora)" };
+    }
 
-    // 2) Si el frontend nos pasó un device explícito, lo probamos
-    const explicit =
-      deviceName &&
-      typeof deviceName === "string" &&
-      deviceName.startsWith("/dev/")
-        ? [deviceName]
-        : [];
+    // ESC p m t1 t2
+    const buf0 = escposOpenDrawerBuffer(0, 25, 250);
+    const buf1 = escposOpenDrawerBuffer(1, 25, 250);
 
-    // 3) Autodetección /dev/usb/lp*
-    const candidates = [
-      ...new Set([
-        ...explicit,
-        ...preferred,
-        ...listCashDrawerCandidatesLinux(),
-      ]),
-    ];
+    const trySend = (buf) =>
+      new Promise((resolve) => {
+        const { spawn } = require("child_process");
+        const p = spawn("lp", ["-d", deviceName, "-o", "raw"], {
+          stdio: ["pipe", "pipe", "pipe"],
+        });
 
-    if (candidates.length === 0) {
+        let err = "";
+        p.stderr.on("data", (d) => (err += d.toString()));
+        p.on("close", (code) => {
+          if (code === 0) resolve({ ok: true });
+          else resolve({ ok: false, error: err.trim() || `lp exit ${code}` });
+        });
+
+        p.stdin.write(buf);
+        p.stdin.end();
+      });
+
+    // probamos pin 0 y luego pin 1
+    let r = await trySend(buf0);
+    if (!r.ok) r = await trySend(buf1);
+
+    if (!r.ok) {
       return {
         ok: false,
-        error: "No se detectó /dev/usb/lp*. ¿Está conectado el cajón?",
+        error:
+          "No se pudo enviar comando al cajón por CUPS. " +
+          "Revisa que la impresora exista en Ubuntu con ese nombre.",
       };
     }
 
-    const tryPin = async (dev, pin) => {
-      const buf = escposOpenDrawerBuffer(pin, 25, 250);
-      const r = await tryWriteToDevice(dev, buf);
-      return { ...r, dev, pin };
-    };
-
-    for (const dev of candidates) {
-      // prueba pin 0 y luego pin 1
-      let r = await tryPin(dev, 0);
-      if (!r.ok) r = await tryPin(dev, 1);
-
-      if (r.ok) {
-        // Guardar para este cliente/instalación
-        writeCashDrawerConfig({
-          device: dev,
-          lastOkAt: new Date().toISOString(),
-        });
-        return { ok: true, device: dev, pin: r.pin };
-      }
-
-      // si fue permiso denegado, damos pista útil
-      if ((r.error || "").toLowerCase().includes("permission denied")) {
-        return {
-          ok: false,
-          error:
-            `Permiso denegado al abrir ${dev}. ` +
-            `En Ubuntu esto se soluciona instalando el .deb (incluye regla udev).`,
-        };
-      }
-    }
-
-    return {
-      ok: false,
-      error: `No se pudo abrir el cajón probando: ${candidates.join(", ")}`,
-    };
+    return { ok: true };
   }
 
   return { ok: false, error: `Sistema no soportado: ${process.platform}` };
 });
+
+const { spawn } = require("child_process");
+
+function lpRaw(deviceName, buffer) {
+  return new Promise((resolve) => {
+    const p = spawn("lp", ["-d", deviceName, "-o", "raw"], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let err = "";
+    p.stderr.on("data", (d) => (err += d.toString()));
+    p.on("close", (code) => {
+      if (code === 0) resolve({ ok: true });
+      else resolve({ ok: false, error: err || `lp exited ${code}` });
+    });
+    p.stdin.write(buffer);
+    p.stdin.end();
+  });
+}
 
 /* Cola de sincronización */
 ipcMain.handle("queue:enqueue", async (_e, item) => {
@@ -835,6 +915,37 @@ ipcMain.handle("app:quit", async () => {
       text: "No puedes cerrar el programa hasta recuperar o eliminar los tickets aparcados.",
     });
     return { ok: false, reason: "parked" };
+  }
+
+  app.quit();
+  return { ok: true };
+});
+
+ipcMain.handle("tpv:attemptQuit", async () => {
+  if (!mainWin || mainWin.isDestroyed()) return { ok: true };
+
+  let guards = { cashOpen: false, parkedCount: 0 };
+  try {
+    guards = await mainWin.webContents.executeJavaScript(
+      "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()"
+    );
+    guards = guards || { cashOpen: false, parkedCount: 0 };
+  } catch (_) {}
+
+  if (guards.cashOpen) {
+    mainWin.webContents.send("tpv:guard", {
+      title: "Terminal abierta",
+      text: "No puedes cerrar el programa hasta que cierres la caja.",
+    });
+    return { ok: false, blocked: "cashOpen" };
+  }
+
+  if ((guards.parkedCount || 0) > 0) {
+    mainWin.webContents.send("tpv:guard", {
+      title: "Tickets aparcados",
+      text: "No puedes cerrar el programa hasta recuperar o eliminar los tickets aparcados.",
+    });
+    return { ok: false, blocked: "parked" };
   }
 
   app.quit();
