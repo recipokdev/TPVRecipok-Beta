@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -e
+
+# Al desinstalar, quitamos la regla udev
+RULE_DST="/etc/udev/rules.d/99-tpvrecipok-cashdrawer.rules"
+rm -f "$RULE_DST" || true
+
+if command -v udevadm >/dev/null 2>&1; then
+  udevadm control --reload-rules || true
+  udevadm trigger || true
+fi
+
+exit 0

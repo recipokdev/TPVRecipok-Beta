@@ -1,6 +1,6 @@
 {
   "name": "tpvrecipok",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "",
   "main": "main.js",
   "scripts": {
@@ -52,6 +52,7 @@
         "deb",
         "AppImage"
       ],
+      "artifactName": "TPV-Recipok.${ext}",
       "icon": "assets/icon.png",
       "category": "Office",
       "extraResources": [
@@ -62,7 +63,9 @@
       ]
     },
     "deb": {
-      "afterInstall": "build/linux/after-install.sh"
+      "depends": [
+        "libfuse2"
+      ]
     },
     "nsis": {
       "oneClick": false,

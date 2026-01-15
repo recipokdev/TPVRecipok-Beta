@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -e
+
+# ---- 0) Detectar usuario real (cuando instalas con Ubuntu Software no siempre hay SUDO_USER)
+REAL_USER="${SUDO_USER:-}"
+if [ -z "$REAL_USER" ]; then
+  # intenta obtener el usuario "principal" (uid>=1000)
+  REAL_USER="$(awk -F: '$3>=1000 && $1!="nobody"{print $1; exit}' /etc/passwd)"
+fi
+
+# Home del usuario
+REAL_HOME="$(getent passwd "$REAL_USER" | cut -d: -f6)"
+if [ -z "$REAL_HOME" ] || [ ! -d "$REAL_HOME" ]; then
+  # si falla, no rompemos la instalación
+  exit 0
+fi
+
+# ---- 1) Dependencias (FUSE + curl)
+apt-get update || true
+apt-get install -y curl libfuse2 fuse || true
+
+# ---- 2) Instalar regla udev del cajón/impresora
+RULE_DST="/etc/udev/rules.d/99-tpvrecipok-cashdrawer.rules"
+RULE_SRC=""
+
+for d in "/opt/TPV Recipok" "/opt/tpvrecipok" "/opt/TPVRecipok"; do
+  if [ -f "$d/resources/assets/udev/99-tpvrecipok-cashdrawer.rules" ]; then
+    RULE_SRC="$d/resources/assets/udev/99-tpvrecipok-cashdrawer.rules"
+    break
+  fi
+done
+
+if [ -n "$RULE_SRC" ]; then
+  cp -f "$RULE_SRC" "$RULE_DST"
+  chmod 644 "$RULE_DST"
+fi
+
+if command -v udevadm >/dev/null 2>&1; then
+  udevadm control --reload-rules || true
+  udevadm trigger || true
+fi
+
+# ---- 3) Descargar AppImage latest y dejarla en una ruta escribible por el usuario (para auto-update)
+APP_DIR="$REAL_HOME/.local/share/tpvrecipok"
+APPIMAGE_PATH="$APP_DIR/TPV-Recipok.AppImage"
+mkdir -p "$APP_DIR"
+
+# URL "latest download" (requiere que el asset se llame TPV-Recipok.AppImage)
+APPIMAGE_URL="https://github.com/recipokdev/TPVRecipok/releases/latest/download/TPV-Recipok.AppImage"
+
+# descargar a archivo temporal y mover
+TMP="$(mktemp)"
+if curl -L --fail -o "$TMP" "$APPIMAGE_URL"; then
+  mv "$TMP" "$APPIMAGE_PATH"
+  chmod +x "$APPIMAGE_PATH"
+  chown -R "$REAL_USER:$REAL_USER" "$APP_DIR"
+else
+  rm -f "$TMP" || true
+fi
+
+# ---- 4) Crear launcher en el menú (Desktop entry)
+DESKTOP_ENTRY="/usr/share/applications/tpvrecipok.desktop"
+cat > "$DESKTOP_ENTRY" <<EOF
+[Desktop Entry]
+Name=TPV Recipok
+Comment=Terminal punto de venta
+Exec=$APPIMAGE_PATH
+Icon=$REAL_HOME/.local/share/tpvrecipok/icon.png
+Terminal=false
+Type=Application
+Categories=Office;
+StartupNotify=false
+EOF
+
+# Copiar icono a la ruta del usuario (para que el launcher lo vea)
+# Buscamos el icono dentro de /opt/.../resources
+ICON_SRC=""
+for d in "/opt/TPV Recipok" "/opt/tpvrecipok" "/opt/TPVRecipok"; do
+  if [ -f "$d/resources/assets/icon.png" ]; then
+    ICON_SRC="$d/resources/assets/icon.png"
+    break
+  fi
+done
+
+if [ -n "$ICON_SRC" ]; then
+  cp -f "$ICON_SRC" "$REAL_HOME/.local/share/tpvrecipok/icon.png" || true
+  chown "$REAL_USER:$REAL_USER" "$REAL_HOME/.local/share/tpvrecipok/icon.png" || true
+fi
+
+chmod 644 "$DESKTOP_ENTRY" || true
+
+# ---- 5) Acceso directo en Escritorio (si existe)
+DESK1="$REAL_HOME/Escritorio"
+DESK2="$REAL_HOME/Desktop"
+if [ -d "$DESK1" ]; then
+  cp -f "$DESKTOP_ENTRY" "$DESK1/TPV Recipok.desktop" || true
+  chown "$REAL_USER:$REAL_USER" "$DESK1/TPV Recipok.desktop" || true
+  chmod 755 "$DESK1/TPV Recipok.desktop" || true
+elif [ -d "$DESK2" ]; then
+  cp -f "$DESKTOP_ENTRY" "$DESK2/TPV Recipok.desktop" || true
+  chown "$REAL_USER:$REAL_USER" "$DESK2/TPV Recipok.desktop" || true
+  chmod 755 "$DESK2/TPV Recipok.desktop" || true
+fi
+
+exit 0

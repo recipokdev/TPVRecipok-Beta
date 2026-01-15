@@ -32,6 +32,10 @@ function createWindow() {
   const isDev = !app.isPackaged;
 
   mainWin = new BrowserWindow({
+    fullscreen: true,
+    kiosk: true,
+    autoHideMenuBar: true,
+    alwaysOnTop: true,
     width: 1366,
     height: 768,
     show: false,
@@ -456,6 +460,12 @@ ipcMain.handle("ticket:print", async (event, { html, deviceName }) => {
   }
 });
 
+if (process.platform === "linux") {
+  // Evita el error del chrome-sandbox en AppImage en algunos Ubuntus
+  app.commandLine.appendSwitch("no-sandbox");
+  app.commandLine.appendSwitch("disable-setuid-sandbox");
+}
+
 app.whenReady().then(async () => {
   await runAutoUpdateGate();
 
@@ -503,13 +513,22 @@ function escposOpenDrawerBuffer(pin = 0, t1 = 25, t2 = 250) {
   return Buffer.from([0x1b, 0x70, m, a, b]);
 }
 
-function listUsbLpCandidates() {
-  const out = [];
+function listCashDrawerCandidatesLinux() {
+  const out = new Set();
+
+  // /dev/usb/lp0..lp15
   for (let i = 0; i < 16; i++) {
     const p = `/dev/usb/lp${i}`;
-    if (fs.existsSync(p)) out.push(p);
+    if (fs.existsSync(p)) out.add(p);
   }
-  return out;
+
+  // /dev/lp0..lp15 (algunas distros)
+  for (let i = 0; i < 16; i++) {
+    const p = `/dev/lp${i}`;
+    if (fs.existsSync(p)) out.add(p);
+  }
+
+  return [...out];
 }
 
 async function tryWriteToDevice(devPath, buf) {
@@ -581,7 +600,11 @@ ipcMain.handle("tpv:openCashDrawer", async (_event, { deviceName }) => {
 
     // 3) Autodetección /dev/usb/lp*
     const candidates = [
-      ...new Set([...explicit, ...preferred, ...listUsbLpCandidates()]),
+      ...new Set([
+        ...explicit,
+        ...preferred,
+        ...listCashDrawerCandidatesLinux(),
+      ]),
     ];
 
     if (candidates.length === 0) {

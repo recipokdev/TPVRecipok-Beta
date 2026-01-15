@@ -1,2 +1,3 @@
-# TPV Recipok - allow users to access USB printer ports (used for cash drawer ESC/POS)
-KERNEL=="lp[0-9]*", SUBSYSTEM=="usb", MODE:="0666"
+# TPV Recipok - permitir acceso al puerto de impresora/cajón (usblp/lp)
+KERNEL=="lp[0-9]*", MODE="0666"
+KERNEL=="usb/lp[0-9]*", MODE="0666"
