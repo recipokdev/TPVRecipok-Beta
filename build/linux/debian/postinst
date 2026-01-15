@@ -18,14 +18,9 @@ apt-get install -y curl libfuse2 fuse || true
 
 # ---- 2) Regla udev del cajón/impresora
 RULE_DST="/etc/udev/rules.d/99-tpvrecipok-cashdrawer.rules"
-RULE_SRC=""
 
 if [ -f "/opt/TPV Recipok/resources/assets/udev/99-tpvrecipok-cashdrawer.rules" ]; then
-  RULE_SRC="/opt/TPV Recipok/resources/assets/udev/99-tpvrecipok-cashdrawer.rules"
-fi
-
-if [ -n "$RULE_SRC" ]; then
-  cp -f "$RULE_SRC" "$RULE_DST"
+  cp -f "/opt/TPV Recipok/resources/assets/udev/99-tpvrecipok-cashdrawer.rules" "$RULE_DST"
   chmod 644 "$RULE_DST"
 fi
 
@@ -83,14 +78,24 @@ chmod 644 "$DESKTOP_ENTRY" || true
 DESK1="$REAL_HOME/Escritorio"
 DESK2="$REAL_HOME/Desktop"
 
+# limpia posibles nombres antiguos
+rm -f "$DESK1/TPV Recipok.desktop" "$DESK2/TPV Recipok.desktop" 2>/dev/null || true
+
 if [ -d "$DESK1" ]; then
   cp -f "$DESKTOP_ENTRY" "$DESK1/TPV-Recipok.desktop" || true
   chown "$REAL_USER:$REAL_USER" "$DESK1/TPV-Recipok.desktop" || true
   chmod 755 "$DESK1/TPV-Recipok.desktop" || true
+  # marcar como "confiable" en GNOME si existe gio
+  if command -v gio >/dev/null 2>&1; then
+    gio set "$DESK1/TPV-Recipok.desktop" metadata::trusted true 2>/dev/null || true
+  fi
 elif [ -d "$DESK2" ]; then
   cp -f "$DESKTOP_ENTRY" "$DESK2/TPV-Recipok.desktop" || true
   chown "$REAL_USER:$REAL_USER" "$DESK2/TPV-Recipok.desktop" || true
   chmod 755 "$DESK2/TPV-Recipok.desktop" || true
+  if command -v gio >/dev/null 2>&1; then
+    gio set "$DESK2/TPV-Recipok.desktop" metadata::trusted true 2>/dev/null || true
+  fi
 fi
 
 # ---- 7) Autoarranque (al iniciar sesión)
@@ -107,7 +112,7 @@ X-GNOME-Autostart-enabled=true
 Terminal=false
 EOF
 
-chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/.config" || true
+chown "$REAL_USER:$REAL_USER" "$AUTOSTART_DIR/tpvrecipok.desktop" || true
 chmod 644 "$AUTOSTART_DIR/tpvrecipok.desktop" || true
 
 exit 0

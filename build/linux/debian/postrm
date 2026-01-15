@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -e
+
+ACTION="${1:-remove}"
+
+# --- 1) Limpieza del sistema (siempre en remove y purge) ---
+# udev rule (por si prerm no lo quitó)
+RULE_DST="/etc/udev/rules.d/99-tpvrecipok-cashdrawer.rules"
+rm -f "$RULE_DST" || true
+
+# launcher del sistema
+rm -f /usr/share/applications/tpvrecipok.desktop || true
+
+# icono del sistema (si lo instalas aquí)
+rm -f /usr/share/icons/hicolor/256x256/apps/tpvrecipok.png || true
+
+# refrescar udev e iconos
+if command -v udevadm >/dev/null 2>&1; then
+  udevadm control --reload-rules || true
+  udevadm trigger || true
+fi
+
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -f /usr/share/icons/hicolor || true
+fi
+
+# --- 2) Si es PURGE, borramos datos del usuario ---
+if [ "$ACTION" = "purge" ]; then
+  # detectar usuario “real” (uid>=1000)
+  REAL_USER="${SUDO_USER:-}"
+  if [ -z "$REAL_USER" ]; then
+    REAL_USER="$(awk -F: '$3>=1000 && $1!="nobody"{print $1; exit}' /etc/passwd)"
+  fi
+
+  REAL_HOME="$(getent passwd "$REAL_USER" | cut -d: -f6)"
+  if [ -n "$REAL_HOME" ] && [ -d "$REAL_HOME" ]; then
+    rm -rf "$REAL_HOME/.local/share/tpvrecipok" || true
+    rm -f "$REAL_HOME/Escritorio/TPV-Recipok.desktop" || true
+    rm -f "$REAL_HOME/Desktop/TPV-Recipok.desktop" || true
+    rm -f "$REAL_HOME/Escritorio/TPV Recipok.desktop" || true
+    rm -f "$REAL_HOME/Desktop/TPV Recipok.desktop" || true
+
+
+    # autostart del usuario (si lo creas)
+    rm -f "$REAL_HOME/.config/autostart/tpvrecipok.desktop" || true
+  fi
+fi
+
+exit 0

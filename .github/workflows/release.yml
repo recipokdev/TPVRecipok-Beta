@@ -42,6 +42,7 @@ jobs:
         run: |
           chmod +x build/linux/debian/postinst || true
           chmod +x build/linux/debian/prerm || true
+          chmod +x build/linux/debian/postrm || true
 
       - name: Build & Publish (Windows)
         if: matrix.os == 'windows-latest'
