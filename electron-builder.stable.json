@@ -1,0 +1,10 @@
+{
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "recipokdev",
+      "repo": "TPVRecipok",
+      "releaseType": "release"
+    }
+  ]
+}

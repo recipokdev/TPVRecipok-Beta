@@ -1,6 +1,6 @@
 {
   "name": "tpvrecipok",
-  "version": "0.1.26",
+  "version": "0.1.27-beta.1",
   "description": "",
   "main": "main.js",
   "scripts": {
@@ -9,8 +9,8 @@
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
     "publish": "electron-builder --publish always",
-    "publish:win": "electron-builder --win --publish always",
-    "publish:linux": "electron-builder --linux --publish always",
+    "publish:win": "electron-builder --win --publish always -c electron-builder.stable.json",
+    "publish:linux": "electron-builder --linux --publish always -c electron-builder.stable.json",
     "publish:win:beta": "electron-builder --win --publish always -c electron-builder.beta.json",
     "publish:linux:beta": "electron-builder --linux --publish always -c electron-builder.beta.json"
   },
@@ -79,14 +79,6 @@
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico"
     },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "recipokdev",
-        "repo": "TPVRecipok",
-        "releaseType": "release"
-      }
-    ],
     "extraResources": [
       {
         "from": "build/channel-stable.json",
