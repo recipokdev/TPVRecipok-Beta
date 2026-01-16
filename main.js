@@ -473,7 +473,7 @@ async function runAutoUpdateGate() {
         } catch {}
       }, 20000);
 
-      setTimeout(() => autoUpdater.quitAndInstall(false, true), 600);
+      setTimeout(() => autoUpdater.quitAndInstall(true, true), 600);
     });
 
     autoUpdater.checkForUpdates();
