@@ -19,14 +19,15 @@
     "executableName": "TPV-Recipok-Beta",
     "extraResources": [
       { "from": "assets/open-drawer.exe", "to": "assets/open-drawer.exe" }
-    ],
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "installDirectory": "$LOCALAPPDATA\\Programs\\TPVRecipokBeta",
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    }
+    ]
+  },
+
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "installDirectory": "$LOCALAPPDATA\\Programs\\TPVRecipokBeta",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
   },
 
   "linux": {
