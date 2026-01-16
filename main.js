@@ -186,7 +186,7 @@ function createWindow() {
 
   /*  Uncomment para abrir DevTools o consola siempre
    */
-  mainWin.webContents.openDevTools();
+  if (!app.isPackaged) mainWin.webContents.openDevTools();
 
   mainWin.webContents.on("render-process-gone", (event, details) => {
     console.log("render-process-gone:", details);
