@@ -416,15 +416,28 @@ async function runAutoUpdateGate() {
   // limpia listeners ANTES de registrar
   autoUpdater.removeAllListeners();
 
+  // ✅ Blindaje: cada build apunta a su “feed” y NO ve el otro
   if (channel === "beta") {
-    autoUpdater.channel = "beta"; // => beta.yml
-    autoUpdater.allowPrerelease = true; // acepta prereleases
+    autoUpdater.allowPrerelease = true;
+    autoUpdater.allowDowngrade = false;
+
+    autoUpdater.setFeedURL({
+      provider: "github",
+      owner: "recipokdev",
+      repo: "TPVRecipok",
+      releaseType: "prerelease",
+      channel: "beta",
+    });
   } else {
-    // stable => NO tocar channel (que use latest.yml)
-    try {
-      delete autoUpdater.channel;
-    } catch {}
     autoUpdater.allowPrerelease = false;
+    autoUpdater.allowDowngrade = false;
+
+    autoUpdater.setFeedURL({
+      provider: "github",
+      owner: "recipokdev",
+      repo: "TPVRecipok",
+      releaseType: "release",
+    });
   }
 
   logUpdater(
