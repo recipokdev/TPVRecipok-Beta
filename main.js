@@ -465,6 +465,7 @@ async function runAutoUpdateGate() {
     autoUpdater.on("download-progress", onProgress);
 
     autoUpdater.once("update-downloaded", () => {
+      allowMainClose = true;
       splashSet("Instalando actualización…", 100);
 
       setTimeout(() => {
