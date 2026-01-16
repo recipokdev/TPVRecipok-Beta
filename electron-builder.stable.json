@@ -16,7 +16,9 @@
   },
 
   "linux": {
-    "icon": "assets/icon.png"
+    "target": ["deb", "AppImage"],
+    "icon": "assets/icon.png",
+    "category": "Office"
   },
 
   "nsis": {

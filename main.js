@@ -388,7 +388,18 @@ function readChannel() {
   }
 }
 
+const os = require("os");
+
+// (opcional) log a fichero para depurar en clientes
+function logUpdater(...args) {
+  try {
+    const p = path.join(app.getPath("userData"), "updater.log");
+    fs.appendFileSync(p, args.map((a) => String(a)).join(" ") + "\n");
+  } catch {}
+}
+
 async function runAutoUpdateGate() {
+  // Linux: solo auto-update si es AppImage
   if (process.platform === "linux" && !process.env.APPIMAGE) {
     return { updatedOrReady: true };
   }
@@ -402,61 +413,61 @@ async function runAutoUpdateGate() {
 
   const channel = readChannel(); // "stable" o "beta"
 
+  // limpia listeners ANTES de registrar
+  autoUpdater.removeAllListeners();
+
   if (channel === "beta") {
-    autoUpdater.channel = "beta";
-    autoUpdater.allowPrerelease = true;
+    autoUpdater.channel = "beta"; // => beta.yml
+    autoUpdater.allowPrerelease = true; // acepta prereleases
   } else {
-    autoUpdater.channel = "latest"; // o simplemente NO tocar channel nunca
+    // stable => NO tocar channel (que use latest.yml)
+    try {
+      delete autoUpdater.channel;
+    } catch {}
     autoUpdater.allowPrerelease = false;
   }
 
+  logUpdater(
+    "channel=",
+    channel,
+    "allowPrerelease=",
+    autoUpdater.allowPrerelease,
+    "APPIMAGE=",
+    !!process.env.APPIMAGE
+  );
+
   return await new Promise((resolve) => {
     let finished = false;
-    const done = (result) => {
-      if (finished) return;
-      finished = true;
-      resolve(result);
+    const done = (r) => {
+      if (!finished) {
+        finished = true;
+        resolve(r);
+      }
     };
 
-    const onProgress = (p) => {
-      const pct = typeof p.percent === "number" ? p.percent : 0;
-      splashSet("Descargando actualización…", pct);
-    };
-
-    // ✅ LIMPIAR AQUÍ (antes de re-registrar)
-    autoUpdater.removeAllListeners();
+    const onProgress = (p) =>
+      splashSet("Descargando actualización…", Number(p?.percent) || 0);
 
     const watchdog = setTimeout(() => {
       splashSet("Conexión lenta. Abriendo…", 40);
-      setTimeout(() => {
-        autoUpdater.removeListener("download-progress", onProgress);
-        done({ updatedOrReady: true });
-      }, 200);
+      setTimeout(() => done({ updatedOrReady: true }), 200);
     }, 15000);
 
     const finishOk = (msg, percent = 60, delay = 200) => {
       clearTimeout(watchdog);
       splashSet(msg, percent);
-      setTimeout(() => {
-        autoUpdater.removeListener("download-progress", onProgress);
-        done({ updatedOrReady: true });
-      }, delay);
+      setTimeout(() => done({ updatedOrReady: true }), delay);
     };
 
     autoUpdater.once("error", (err) => {
-      console.log("AutoUpdate error:", err);
+      logUpdater("error", err?.message || err);
       clearTimeout(watchdog);
-      splashSet("No se pudo comprobar. Abriendo…", 40);
-      setTimeout(() => {
-        autoUpdater.removeListener("download-progress", onProgress);
-        done({ updatedOrReady: true });
-      }, 300);
+      finishOk("No se pudo comprobar. Abriendo…", 40, 300);
     });
 
-    autoUpdater.once("update-not-available", () => {
-      finishOk("Todo al día. Abriendo…", 60, 200);
-    });
-
+    autoUpdater.once("update-not-available", () =>
+      finishOk("Todo al día. Abriendo…", 60, 200)
+    );
     autoUpdater.once("update-available", () => {
       clearTimeout(watchdog);
       splashSet("Actualización encontrada. Descargando…", 25);
@@ -465,16 +476,18 @@ async function runAutoUpdateGate() {
     autoUpdater.on("download-progress", onProgress);
 
     autoUpdater.once("update-downloaded", () => {
-      allowMainClose = true;
       splashSet("Instalando actualización…", 100);
 
+      // ✅ IMPORTANTÍSIMO en Windows:
+      // true = silent (NO abre instalador)
+      setTimeout(() => autoUpdater.quitAndInstall(true, true), 600);
+
+      // failsafe
       setTimeout(() => {
         try {
           app.exit(0);
         } catch {}
       }, 20000);
-
-      setTimeout(() => autoUpdater.quitAndInstall(true, true), 600);
     });
 
     autoUpdater.checkForUpdates();
@@ -580,6 +593,25 @@ if (process.platform === "linux") {
   // Evita el error del chrome-sandbox en AppImage en algunos Ubuntus
   app.commandLine.appendSwitch("no-sandbox");
   app.commandLine.appendSwitch("disable-setuid-sandbox");
+}
+
+if (process.platform === "win32") {
+  const channel = (() => {
+    try {
+      const p = app.isPackaged
+        ? path.join(process.resourcesPath, "channel.json")
+        : path.join(__dirname, "build", "channel-stable.json");
+      return JSON.parse(fs.readFileSync(p, "utf8")).channel || "stable";
+    } catch {
+      return "stable";
+    }
+  })();
+
+  app.setAppUserModelId(
+    channel === "beta"
+      ? "com.recipok.tpvrecipok.beta"
+      : "com.recipok.tpvrecipok"
+  );
 }
 
 app.whenReady().then(async () => {
