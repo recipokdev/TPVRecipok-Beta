@@ -389,32 +389,28 @@ function readChannel() {
 }
 
 async function runAutoUpdateGate() {
-  // Linux: solo auto-update si es AppImage (el .deb lo gestiona apt/dpkg)
   if (process.platform === "linux" && !process.env.APPIMAGE) {
     return { updatedOrReady: true };
   }
-
-  // En desarrollo no hacemos nada de updates
   if (!app.isPackaged) return { updatedOrReady: true };
 
-  // Creamos splash
   createSplashWindow();
   splashSet("Buscando actualizaciones...", 20);
 
-  // Configuración
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = false;
 
-  // Canal fijo por channel.json (estable/beta)
   const channel = readChannel(); // "stable" o "beta"
 
   if (channel === "beta") {
-    autoUpdater.channel = "beta"; // -> latest-beta.yml
-    autoUpdater.allowPrerelease = true; // acepta prereleases
+    autoUpdater.channel = "beta";
+    autoUpdater.allowPrerelease = true;
   } else {
-    autoUpdater.channel = undefined; // ✅ evita que quede “pegado” a beta
-    // Stable: NO seteamos channel para que use latest.yml
-    // (y evitamos cualquier "latest" raro)
+    // IMPORTANTE: para stable, mejor NO setear channel
+    // (si quieres, puedes borrar la propiedad)
+    try {
+      delete autoUpdater.channel;
+    } catch {}
     autoUpdater.allowPrerelease = false;
   }
 
@@ -431,7 +427,9 @@ async function runAutoUpdateGate() {
       splashSet("Descargando actualización…", pct);
     };
 
-    // Watchdog: si GitHub tarda o se cuelga, abrimos igual
+    // ✅ LIMPIAR AQUÍ (antes de re-registrar)
+    autoUpdater.removeAllListeners();
+
     const watchdog = setTimeout(() => {
       splashSet("Conexión lenta. Abriendo…", 40);
       setTimeout(() => {
@@ -473,7 +471,6 @@ async function runAutoUpdateGate() {
     autoUpdater.once("update-downloaded", () => {
       splashSet("Instalando actualización…", 100);
 
-      // failsafe: si en 20s no se cerró, fuerza salida
       setTimeout(() => {
         try {
           app.exit(0);
@@ -483,9 +480,6 @@ async function runAutoUpdateGate() {
       setTimeout(() => autoUpdater.quitAndInstall(false, true), 600);
     });
 
-    autoUpdater.removeAllListeners();
-
-    // aquí pones once/on: error, update-not-available, update-available...
     autoUpdater.checkForUpdates();
   });
 }

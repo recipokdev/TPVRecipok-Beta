@@ -1,4 +1,10 @@
 {
+  "appId": "com.recipok.tpvrecipok",
+  "productName": "TPV Recipok",
+  "updaterCacheDirName": "tpvrecipok-updater",
+  "icon": "assets/icon.ico",
+  "win": { "icon": "assets/icon.ico" },
+  "linux": { "icon": "assets/icon.png" },
   "publish": [
     {
       "provider": "github",
@@ -6,5 +12,8 @@
       "repo": "TPVRecipok",
       "releaseType": "release"
     }
-  ]
+  ],
+  "nsis": {
+    "guid": "7b1e8c7d-0d69-4d3a-8e83-6b0c3d0b2c6e"
+  }
 }

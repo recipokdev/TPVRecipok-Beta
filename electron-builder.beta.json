@@ -2,6 +2,9 @@
   "appId": "com.recipok.tpvrecipok.beta",
   "productName": "TPV Recipok Beta",
   "artifactName": "TPV-Recipok-Beta-${version}.${ext}",
+  "updaterCacheDirName": "tpvrecipokbeta-updater",
+
+  "icon": "assets/icon.ico",
 
   "publish": [
     {
@@ -14,6 +17,7 @@
   ],
 
   "win": {
+    "icon": "assets/icon.ico",
     "target": "nsis",
     "artifactName": "TPV-Recipok-Beta-Setup-${version}.${ext}",
     "executableName": "TPV-Recipok-Beta",
@@ -27,10 +31,13 @@
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
-    "createStartMenuShortcut": true
+    "createStartMenuShortcut": true,
+    "installerIcon": "assets/icon.ico",
+    "uninstallerIcon": "assets/icon.ico"
   },
 
   "linux": {
+    "icon": "assets/icon.png",
     "target": ["deb", "AppImage"],
     "artifactName": "TPV-Recipok-Beta-${version}.${ext}",
     "extraResources": [
