@@ -1,0 +1,46 @@
+{
+  "appId": "com.recipok.tpvrecipok.beta",
+  "productName": "TPV Recipok Beta",
+  "artifactName": "TPV-Recipok-Beta-${version}.${ext}",
+
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "recipokdev",
+      "repo": "TPVRecipok",
+      "releaseType": "prerelease",
+      "channel": "beta"
+    }
+  ],
+
+  "win": {
+    "target": "nsis",
+    "artifactName": "TPV-Recipok-Beta-Setup-${version}.${ext}",
+    "executableName": "TPV-Recipok-Beta",
+    "extraResources": [
+      { "from": "assets/open-drawer.exe", "to": "assets/open-drawer.exe" }
+    ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installDirectory": "$LOCALAPPDATA\\Programs\\TPVRecipokBeta",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+
+  "linux": {
+    "target": ["deb", "AppImage"],
+    "artifactName": "TPV-Recipok-Beta-${version}.${ext}",
+    "extraResources": [
+      {
+        "from": "assets/udev/99-tpvrecipok-cashdrawer.rules",
+        "to": "assets/udev/99-tpvrecipok-cashdrawer.rules"
+      }
+    ]
+  },
+
+  "extraResources": [
+    { "from": "build/channel-beta.json", "to": "channel.json" }
+  ]
+}

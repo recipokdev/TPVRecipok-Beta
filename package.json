@@ -1,6 +1,6 @@
 {
   "name": "tpvrecipok",
-  "version": "0.1.24",
+  "version": "0.1.25-beta.1",
   "description": "",
   "main": "main.js",
   "scripts": {
@@ -11,8 +11,8 @@
     "publish": "electron-builder --publish always",
     "publish:win": "electron-builder --win --publish always",
     "publish:linux": "electron-builder --linux --publish always",
-    "publish:win:beta": "electron-builder --win --publish always --config.appId=com.recipok.tpvrecipok.beta --config.productName=\"TPV Recipok (Beta)\" --config.win.artifactName=\"TPV-Recipok-Beta-Setup-${version}.${ext}\" --config.publish.channel=beta --config.publish.releaseType=prerelease",
-    "publish:linux:beta": "electron-builder --linux --publish always --config.appId=com.recipok.tpvrecipok.beta --config.productName=\"TPV Recipok (Beta)\" --config.linux.artifactName=\"TPV-Recipok-Beta-\\${version}.\\${ext}\" --config.publish.channel=beta --config.publish.releaseType=prerelease"
+    "publish:win:beta": "electron-builder --win --publish always -c electron-builder.beta.json",
+    "publish:linux:beta": "electron-builder --linux --publish always -c electron-builder.beta.json"
   },
   "keywords": [],
   "author": {
@@ -84,6 +84,12 @@
         "owner": "recipokdev",
         "repo": "TPVRecipok",
         "releaseType": "release"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "build/channel-stable.json",
+        "to": "channel.json"
       }
     ]
   },

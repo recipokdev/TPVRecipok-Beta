@@ -377,7 +377,23 @@ function closeSplash() {
   splashWin = null;
 }
 
+function readChannel() {
+  try {
+    const p = app.isPackaged
+      ? path.join(process.resourcesPath, "channel.json")
+      : path.join(__dirname, "build", "channel-stable.json");
+    return JSON.parse(fs.readFileSync(p, "utf8")).channel || "stable";
+  } catch {
+    return "stable";
+  }
+}
+
 async function runAutoUpdateGate() {
+  // Linux: solo auto-update si es AppImage (el .deb lo gestiona apt/dpkg)
+  if (process.platform === "linux" && !process.env.APPIMAGE) {
+    return { updatedOrReady: true };
+  }
+
   // En desarrollo no hacemos nada de updates
   if (!app.isPackaged) return { updatedOrReady: true };
 
@@ -389,12 +405,30 @@ async function runAutoUpdateGate() {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = false;
 
+  // Canal fijo por channel.json (estable/beta)
+  const channel = readChannel(); // "stable" o "beta"
+
+  if (channel === "beta") {
+    autoUpdater.channel = "beta"; // -> latest-beta.yml
+    autoUpdater.allowPrerelease = true; // acepta prereleases
+  } else {
+    autoUpdater.channel = undefined; // ✅ evita que quede “pegado” a beta
+    // Stable: NO seteamos channel para que use latest.yml
+    // (y evitamos cualquier "latest" raro)
+    autoUpdater.allowPrerelease = false;
+  }
+
   return await new Promise((resolve) => {
     let finished = false;
     const done = (result) => {
       if (finished) return;
       finished = true;
       resolve(result);
+    };
+
+    const onProgress = (p) => {
+      const pct = typeof p.percent === "number" ? p.percent : 0;
+      splashSet("Descargando actualización…", pct);
     };
 
     // Watchdog: si GitHub tarda o se cuelga, abrimos igual
@@ -434,23 +468,24 @@ async function runAutoUpdateGate() {
       splashSet("Actualización encontrada. Descargando…", 25);
     });
 
-    const onProgress = (p) => {
-      const pct = typeof p.percent === "number" ? p.percent : 0;
-      splashSet("Descargando actualización…", pct);
-    };
     autoUpdater.on("download-progress", onProgress);
 
     autoUpdater.once("update-downloaded", () => {
       splashSet("Instalando actualización…", 100);
-      setTimeout(() => autoUpdater.quitAndInstall(true, true), 600);
+
+      // failsafe: si en 20s no se cerró, fuerza salida
+      setTimeout(() => {
+        try {
+          app.exit(0);
+        } catch {}
+      }, 20000);
+
+      setTimeout(() => autoUpdater.quitAndInstall(false, true), 600);
     });
 
-    // ✅ Si esta build es beta (ej: 0.1.26-beta.1), permitimos prereleases
-    // Stable: 0.1.26          -> false
-    // Beta:   0.1.26-beta.1   -> true
-    const isBetaBuild = /-beta\./.test(app.getVersion());
-    autoUpdater.allowPrerelease = isBetaBuild;
+    autoUpdater.removeAllListeners();
 
+    // aquí pones once/on: error, update-not-available, update-available...
     autoUpdater.checkForUpdates();
   });
 }
