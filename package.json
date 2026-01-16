@@ -1,6 +1,6 @@
 {
   "name": "tpvrecipok",
-  "version": "0.1.25-beta.4",
+  "version": "0.1.26",
   "description": "",
   "main": "main.js",
   "scripts": {
@@ -71,6 +71,7 @@
       ]
     },
     "nsis": {
+      "guid": "7b1e8c7d-0d69-4d3a-8e83-6b0c3d0b2c6e",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
