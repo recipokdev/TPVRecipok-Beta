@@ -1,10 +1,7 @@
 {
   "appId": "com.recipok.tpvrecipok.beta",
-  "productName": "TPV Recipok Beta",
+  "productName": "TPV Recipok (Beta)",
   "artifactName": "TPV-Recipok-Beta-${version}.${ext}",
-  "updaterCacheDirName": "tpvrecipokbeta-updater",
-
-  "icon": "assets/icon.ico",
 
   "publish": [
     {
@@ -17,10 +14,11 @@
   ],
 
   "win": {
-    "icon": "assets/icon.ico",
     "target": "nsis",
+    "icon": "assets/icon.ico",
     "artifactName": "TPV-Recipok-Beta-Setup-${version}.${ext}",
     "executableName": "TPV-Recipok-Beta",
+    "appUserModelId": "com.recipok.tpvrecipok.beta",
     "extraResources": [
       { "from": "assets/open-drawer.exe", "to": "assets/open-drawer.exe" }
     ]
@@ -32,14 +30,16 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
+    "shortcutName": "TPV Recipok (Beta)",
     "installerIcon": "assets/icon.ico",
     "uninstallerIcon": "assets/icon.ico"
   },
 
   "linux": {
-    "icon": "assets/icon.png",
     "target": ["deb", "AppImage"],
+    "icon": "assets/icon.png",
     "artifactName": "TPV-Recipok-Beta-${version}.${ext}",
+    "category": "Office",
     "extraResources": [
       {
         "from": "assets/udev/99-tpvrecipok-cashdrawer.rules",

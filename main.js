@@ -406,11 +406,7 @@ async function runAutoUpdateGate() {
     autoUpdater.channel = "beta";
     autoUpdater.allowPrerelease = true;
   } else {
-    // IMPORTANTE: para stable, mejor NO setear channel
-    // (si quieres, puedes borrar la propiedad)
-    try {
-      delete autoUpdater.channel;
-    } catch {}
+    autoUpdater.channel = "latest"; // o simplemente NO tocar channel nunca
     autoUpdater.allowPrerelease = false;
   }
 

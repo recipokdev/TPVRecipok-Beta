@@ -1,10 +1,7 @@
 {
   "appId": "com.recipok.tpvrecipok",
   "productName": "TPV Recipok",
-  "updaterCacheDirName": "tpvrecipok-updater",
-  "icon": "assets/icon.ico",
-  "win": { "icon": "assets/icon.ico" },
-  "linux": { "icon": "assets/icon.png" },
+
   "publish": [
     {
       "provider": "github",
@@ -13,7 +10,22 @@
       "releaseType": "release"
     }
   ],
+
+  "win": {
+    "icon": "assets/icon.ico",
+    "appUserModelId": "com.recipok.tpvrecipok"
+  },
+
+  "linux": {
+    "icon": "assets/icon.png"
+  },
+
   "nsis": {
-    "guid": "7b1e8c7d-0d69-4d3a-8e83-6b0c3d0b2c6e"
-  }
+    "guid": "7b1e8c7d-0d69-4d3a-8e83-6b0c3d0b2c6e",
+    "shortcutName": "TPV Recipok"
+  },
+
+  "extraResources": [
+    { "from": "build/channel-stable.json", "to": "channel.json" }
+  ]
 }

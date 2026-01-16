@@ -1,6 +1,6 @@
 {
   "name": "tpvrecipok",
-  "version": "0.1.27-beta.4",
+  "version": "0.1.27-beta.5",
   "description": "",
   "main": "main.js",
   "scripts": {
@@ -27,8 +27,6 @@
     "electron-rebuild": "^3.2.9"
   },
   "build": {
-    "appId": "com.recipok.tpvrecipok",
-    "productName": "TPV Recipok",
     "icon": "assets/icon.ico",
     "directories": {
       "output": "dist",
@@ -41,7 +39,6 @@
     ],
     "win": {
       "target": "nsis",
-      "artifactName": "TPV-Recipok-Setup-${version}.${ext}",
       "icon": "assets/icon.ico",
       "extraResources": [
         {
@@ -55,7 +52,6 @@
         "deb",
         "AppImage"
       ],
-      "artifactName": "TPV-Recipok.${ext}",
       "icon": "assets/icon.png",
       "category": "Office",
       "extraResources": [
@@ -71,20 +67,13 @@
       ]
     },
     "nsis": {
-      "guid": "7b1e8c7d-0d69-4d3a-8e83-6b0c3d0b2c6e",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico"
-    },
-    "extraResources": [
-      {
-        "from": "build/channel-stable.json",
-        "to": "channel.json"
-      }
-    ]
+    }
   },
   "repository": {
     "type": "git",
