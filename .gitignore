@@ -11,6 +11,7 @@ release/
 
 # Electron
 *.exe
+!assets/open-drawer.exe
 *.msi
 *.dmg
 *.AppImage
