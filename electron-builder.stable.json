@@ -12,8 +12,7 @@
   ],
 
   "win": {
-    "icon": "assets/icon.ico",
-    "appUserModelId": "com.recipok.tpvrecipok"
+    "icon": "assets/icon.ico"
   },
 
   "linux": {
