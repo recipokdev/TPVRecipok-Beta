@@ -1,6 +1,6 @@
 {
   "name": "tpvrecipok",
-  "version": "0.1.24-beta.2",
+  "version": "0.1.24-beta.3",
   "description": "",
   "main": "main.js",
   "scripts": {
@@ -12,7 +12,7 @@
     "publish:win": "electron-builder --win --publish always",
     "publish:linux": "electron-builder --linux --publish always",
     "publish:win:beta": "electron-builder --win --publish always --config.appId=com.recipok.tpvrecipok.beta --config.productName=\"TPV Recipok (Beta)\" --config.win.artifactName=\"TPV-Recipok-Beta-Setup-${version}.${ext}\" --config.publish.channel=beta --config.publish.releaseType=prerelease",
-    "publish:linux:beta": "electron-builder --linux --publish always --config.appId=com.recipok.tpvrecipok.beta --config.productName=\"TPV Recipok (Beta)\" --config.linux.artifactName=\"TPV-Recipok-Beta.${ext}\" --config.publish.channel=beta --config.publish.releaseType=prerelease"
+    "publish:linux:beta": "electron-builder --linux --publish always --config.appId=com.recipok.tpvrecipok.beta --config.productName=\"TPV Recipok (Beta)\" --config.linux.artifactName=\"TPV-Recipok-Beta-\\${version}.\\${ext}\" --config.publish.channel=beta --config.publish.releaseType=prerelease"
   },
   "keywords": [],
   "author": {
