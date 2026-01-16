@@ -445,6 +445,12 @@ async function runAutoUpdateGate() {
       setTimeout(() => autoUpdater.quitAndInstall(true, true), 600);
     });
 
+    // ✅ Si esta build es beta (ej: 0.1.26-beta.1), permitimos prereleases
+    // Stable: 0.1.26          -> false
+    // Beta:   0.1.26-beta.1   -> true
+    const isBetaBuild = /-beta\./.test(app.getVersion());
+    autoUpdater.allowPrerelease = isBetaBuild;
+
     autoUpdater.checkForUpdates();
   });
 }

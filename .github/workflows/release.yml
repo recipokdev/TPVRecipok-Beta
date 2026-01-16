@@ -44,14 +44,26 @@ jobs:
           chmod +x build/linux/debian/prerm || true
           chmod +x build/linux/debian/postrm || true
 
-      - name: Build & Publish (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Build & Publish (Windows - Stable)
+        if: matrix.os == 'windows-latest' && !contains(github.ref_name, '-beta.')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run publish:win
 
-      - name: Build & Publish (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Build & Publish (Windows - Beta)
+        if: matrix.os == 'windows-latest' && contains(github.ref_name, '-beta.')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run publish:win:beta
+
+      - name: Build & Publish (Linux - Stable)
+        if: matrix.os == 'ubuntu-latest' && !contains(github.ref_name, '-beta.')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run publish:linux
+
+      - name: Build & Publish (Linux - Beta)
+        if: matrix.os == 'ubuntu-latest' && contains(github.ref_name, '-beta.')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run publish:linux:beta
