@@ -431,6 +431,8 @@ async function runAutoUpdateGate() {
       releaseType: "prerelease",
       channel: "beta",
     });
+    // Evitamos que electron-updater busque en el path por defecto de 'latest'
+    autoUpdater.currentVersion = app.getVersion();
   } else {
     autoUpdater.allowPrerelease = false;
     autoUpdater.allowDowngrade = false;
@@ -523,6 +525,14 @@ async function runAutoUpdateGate() {
         } catch {}
       }, 20000);
     });
+
+    // >>> COLÓCALOS AQUÍ <<<
+    log("DEBUG: Canal configurado en objeto:", autoUpdater.channel);
+    try {
+      log("DEBUG: URL de feed:", autoUpdater.getFeedURL());
+    } catch (e) {
+      log("DEBUG: No se pudo obtener URL del feed aún");
+    }
 
     autoUpdater.checkForUpdates();
   });
