@@ -8,7 +8,7 @@
       "provider": "github",
       "owner": "recipokdev",
       "repo": "TPVRecipok-Beta",
-      "releaseType": "prerelease"
+      "releaseType": "release"
     }
   ],
 

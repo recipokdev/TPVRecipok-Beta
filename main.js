@@ -409,14 +409,30 @@ async function runAutoUpdateGate() {
   createSplashWindow();
   splashSet("Buscando actualizaciones...", 20);
 
+  // Limpieza total ANTES de registrar eventos
   autoUpdater.removeAllListeners();
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = false;
 
-  // ✅ NO setFeedURL
-  // ✅ NO tocar repo/owner aquí
-  // ✅ NO tocar channel aquí (si usas 2 repos)
+  // ✅ Canal (viene de channel.json dentro de resources)
+  const channel = readChannel(); // "beta" | "stable"
+
+  // ✅ Separación por comportamiento (ya que separaste por repos)
+  autoUpdater.allowPrerelease = channel === "beta";
+  autoUpdater.allowDowngrade = false;
+
+  // ✅ Importantísimo: no fuerces channel (evita buscar beta.yml / latest-latest.yml)
+  try {
+    delete autoUpdater.channel;
+  } catch {}
+
+  logUpdater(
+    "UPDATER start channel=",
+    channel,
+    "APPIMAGE=",
+    !!process.env.APPIMAGE
+  );
 
   return await new Promise((resolve) => {
     let finished = false;
@@ -464,6 +480,7 @@ async function runAutoUpdateGate() {
       logUpdater("UPDATER: update-downloaded");
       splashSet("Instalando actualización…", 100);
 
+      // Windows: silent = true => NO abre instalador
       setTimeout(() => autoUpdater.quitAndInstall(true, true), 600);
 
       setTimeout(() => {
