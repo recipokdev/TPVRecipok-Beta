@@ -508,12 +508,23 @@ async function runAutoUpdateGate() {
       finishOk("No se pudo comprobar. Abriendo…", 40, 300);
     });
 
-    autoUpdater.once("update-not-available", () => {
+    autoUpdater.once("update-not-available", (info) => {
       log("UPDATER: update-not-available");
+      log(
+        "DEBUG: Info recibida (not-available):",
+        info ? info.version : "null"
+      );
       finishOk("Todo al día. Abriendo…", 60, 200);
     });
 
-    autoUpdater.once("update-available", () => {
+    autoUpdater.once("update-available", (info) => {
+      // --- LOGS CRÍTICOS ---
+      log("DEBUG: ¡Update Encontrado!");
+      log("DEBUG: Versión detectada:", info.version);
+      log("DEBUG: Canal del update detectado:", info.channel);
+      log("DEBUG: ¿Es Pre-release según info?:", info.releaseName);
+      // ---------------------
+
       log("UPDATER: update-available");
       clearTimeout(watchdog);
       splashSet("Actualización encontrada. Descargando…", 25);
@@ -521,14 +532,13 @@ async function runAutoUpdateGate() {
 
     autoUpdater.on("download-progress", onProgress);
 
-    autoUpdater.once("update-downloaded", () => {
+    autoUpdater.once("update-downloaded", (info) => {
       log("UPDATER: update-downloaded");
+      log("DEBUG: Update descargado versión:", info.version);
       splashSet("Instalando actualización…", 100);
 
-      // ✅ Windows silent: evita que el usuario tenga que clicar
       setTimeout(() => autoUpdater.quitAndInstall(true, true), 600);
 
-      // failsafe
       setTimeout(() => {
         try {
           app.exit(0);
@@ -536,12 +546,17 @@ async function runAutoUpdateGate() {
       }, 20000);
     });
 
-    // >>> COLÓCALOS AQUÍ <<<
-    log("DEBUG: Canal configurado en objeto:", autoUpdater.channel);
+    // --- LOGS DE INICIO DE COMPROBACIÓN ---
+    log("DEBUG: --- INICIANDO CHECK ---");
+    log("DEBUG: App Version actual:", app.getVersion());
+    log("DEBUG: Canal configurado (readChannel):", channel);
+    log("DEBUG: autoUpdater.channel (propiedad):", autoUpdater.channel);
+    log("DEBUG: allowPrerelease:", autoUpdater.allowPrerelease);
+
     try {
       log("DEBUG: URL de feed:", autoUpdater.getFeedURL());
     } catch (e) {
-      log("DEBUG: No se pudo obtener URL del feed aún");
+      log("DEBUG: No se pudo obtener URL del feed");
     }
 
     autoUpdater.checkForUpdates();
