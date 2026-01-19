@@ -381,11 +381,23 @@ function readChannel() {
   try {
     const p = app.isPackaged
       ? path.join(process.resourcesPath, "channel.json")
-      : path.join(__dirname, "build", "channel-stable.json");
-    return JSON.parse(fs.readFileSync(p, "utf8")).channel || "stable";
-  } catch {
-    return "stable";
+      : path.join(__dirname, "build", "channel-beta.json"); // Cambia esto según pruebes
+
+    if (fs.existsSync(p)) {
+      const data = JSON.parse(fs.readFileSync(p, "utf8"));
+      return data.channel;
+    }
+  } catch (e) {
+    console.error("Error leyendo canal:", e);
   }
+
+  // BLINDAJE EXTRA: Si el nombre del producto contiene "Beta",
+  // no permitas que devuelva "stable" por error.
+  if (app.getName().includes("Beta") || app.isPackaged === false) {
+    return "beta";
+  }
+
+  return "stable";
 }
 
 const os = require("os");
@@ -431,8 +443,6 @@ async function runAutoUpdateGate() {
       releaseType: "prerelease",
       channel: "beta",
     });
-    // Evitamos que electron-updater busque en el path por defecto de 'latest'
-    autoUpdater.currentVersion = app.getVersion();
   } else {
     autoUpdater.allowPrerelease = false;
     autoUpdater.allowDowngrade = false;
