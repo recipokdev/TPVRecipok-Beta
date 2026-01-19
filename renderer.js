@@ -1834,8 +1834,8 @@ function renderParkedTicketsModal() {
       <div class="pt-left">
         <div class="pt-title">Ticket #${t.id}</div>
         <div class="pt-sub">${hora} · ${escapeHtml(
-      t.clientName || "Cliente"
-    )}</div>
+          t.clientName || "Cliente"
+        )}</div>
       </div>
 
       <div class="pt-mid">
@@ -4297,8 +4297,32 @@ async function handleOpenDrawerClick(btn) {
     const r = await window.TPV_PRINT.openCashDrawer(printerName);
 
     if (!r || !r.ok) {
+      let mensajeAmigable = "No se pudo abrir el cajón.";
+      const errorTecnico = r?.error || "";
+
+      // --- TRADUCCIÓN DE ERRORES ---
+      if (errorTecnico.includes("No existe open-drawer.exe")) {
+        mensajeAmigable =
+          "Error de instalación: Falta un archivo interno. Por favor, reinicia la app para actualizar.";
+      } else if (
+        errorTecnico.includes("printer exists") ||
+        errorTecnico.includes("not found") ||
+        errorTecnico.includes("deviceName")
+      ) {
+        mensajeAmigable = `La impresora "${printerName}" no está disponible o no existe.`;
+      } else if (errorTecnico.includes("lp exit")) {
+        mensajeAmigable =
+          "Error en el sistema de impresión (CUPS). Revisa la cola de impresión.";
+      } else if (
+        errorTecnico.includes("Access denied") ||
+        errorTecnico.includes("permiso")
+      ) {
+        mensajeAmigable =
+          "No hay permisos suficientes para acceder a la impresora.";
+      }
+
       toast?.(
-        "No se pudo abrir el cajón: " + (r?.error || "error desconocido"),
+        `${mensajeAmigable}\n\n(Detalle: ${errorTecnico || "error desconocido"})`,
         "err",
         "Cajón"
       );
@@ -4306,8 +4330,7 @@ async function handleOpenDrawerClick(btn) {
       toast?.("Cajón abierto ✅", "ok", "Cajón");
     }
   } catch (e) {
-    console.warn(e);
-    toast?.("Error al abrir el cajón", "err", "Cajón");
+    toast?.("Error crítico al intentar abrir el cajón.", "err", "Cajón");
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -8597,8 +8620,8 @@ function buildOfflineTicketPrintData(cartSnapshot, ticketPayload, payResult) {
   const safeItems = Array.isArray(cartSnapshot)
     ? cartSnapshot
     : Array.isArray(cartSnapshot?.items)
-    ? cartSnapshot.items
-    : [];
+      ? cartSnapshot.items
+      : [];
 
   const pagos = (payResult?.pagos || []).map((p) => ({
     codpago: p.codpago,
@@ -8875,8 +8898,8 @@ async function apiCreateCashMovementInFS({ amount, type, reason }) {
       reason && reason.trim()
         ? reason.trim()
         : type === "out"
-        ? "Salida de caja"
-        : "Entrada de caja",
+          ? "Salida de caja"
+          : "Entrada de caja",
     nick, // quién crea
   };
 

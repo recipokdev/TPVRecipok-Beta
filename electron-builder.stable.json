@@ -12,7 +12,8 @@
   ],
 
   "win": {
-    "icon": "assets/icon.ico"
+    "icon": "assets/icon.ico",
+    "executableName": "TPV-Recipok"
   },
 
   "linux": {
