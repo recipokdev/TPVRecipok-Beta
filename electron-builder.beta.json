@@ -16,10 +16,7 @@
     "target": "nsis",
     "icon": "assets/icon.ico",
     "artifactName": "TPV-Recipok-Beta-Setup-${version}.${ext}",
-    "executableName": "TPV-Recipok-Beta",
-    "extraResources": [
-      { "from": "assets/open-drawer.exe", "to": "assets/open-drawer.exe" }
-    ]
+    "executableName": "TPV-Recipok-Beta"
   },
 
   "nsis": {
@@ -46,6 +43,7 @@
     ]
   },
   "extraResources": [
-    { "from": "build/channel-beta.json", "to": "channel.json" }
+    { "from": "build/channel-beta.json", "to": "channel.json" },
+    { "from": "assets/open-drawer.exe", "to": "assets/open-drawer.exe" }
   ]
 }

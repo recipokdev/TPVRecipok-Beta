@@ -27,6 +27,7 @@
   },
 
   "extraResources": [
-    { "from": "build/channel-stable.json", "to": "channel.json" }
+    { "from": "build/channel-stable.json", "to": "channel.json" },
+    { "from": "assets/open-drawer.exe", "to": "open-drawer.exe" }
   ]
 }
