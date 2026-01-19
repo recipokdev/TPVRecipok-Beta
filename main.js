@@ -408,18 +408,21 @@ async function runAutoUpdateGate() {
   createSplashWindow();
   splashSet("Buscando actualizaciones...", 20);
 
+  // Limpieza total ANTES de registrar eventos
+  autoUpdater.removeAllListeners();
+
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = false;
 
-  const channel = readChannel(); // "stable" o "beta"
+  const channel = readChannel(); // "beta" o "stable"
 
-  // limpia listeners ANTES de registrar
-  autoUpdater.removeAllListeners();
-
-  // ✅ Blindaje: cada build apunta a su “feed” y NO ve el otro
+  // 🔒 Blindaje por “feed”
   if (channel === "beta") {
     autoUpdater.allowPrerelease = true;
     autoUpdater.allowDowngrade = false;
+
+    // Fuerza a usar beta.yml / beta-linux.yml
+    autoUpdater.channel = "beta";
 
     autoUpdater.setFeedURL({
       provider: "github",
@@ -432,6 +435,11 @@ async function runAutoUpdateGate() {
     autoUpdater.allowPrerelease = false;
     autoUpdater.allowDowngrade = false;
 
+    // ✅ Stable: NO fijes channel (default => latest*.yml)
+    try {
+      delete autoUpdater.channel;
+    } catch {}
+
     autoUpdater.setFeedURL({
       provider: "github",
       owner: "recipokdev",
@@ -440,11 +448,20 @@ async function runAutoUpdateGate() {
     });
   }
 
-  logUpdater(
+  // (Opcional) log a fichero para ver el error exacto en Linux
+  const log = (...a) => {
+    try {
+      fs.appendFileSync(
+        path.join(app.getPath("userData"), "updater.log"),
+        a.map((x) => String(x)).join(" ") + "\n"
+      );
+    } catch {}
+  };
+
+  log(
+    "UPDATER start",
     "channel=",
     channel,
-    "allowPrerelease=",
-    autoUpdater.allowPrerelease,
     "APPIMAGE=",
     !!process.env.APPIMAGE
   );
@@ -458,8 +475,10 @@ async function runAutoUpdateGate() {
       }
     };
 
-    const onProgress = (p) =>
-      splashSet("Descargando actualización…", Number(p?.percent) || 0);
+    const onProgress = (p) => {
+      const pct = typeof p?.percent === "number" ? p.percent : 0;
+      splashSet("Descargando actualización…", pct);
+    };
 
     const watchdog = setTimeout(() => {
       splashSet("Conexión lenta. Abriendo…", 40);
@@ -473,15 +492,17 @@ async function runAutoUpdateGate() {
     };
 
     autoUpdater.once("error", (err) => {
-      logUpdater("error", err?.message || err);
-      clearTimeout(watchdog);
+      log("UPDATER error:", err?.message || err);
       finishOk("No se pudo comprobar. Abriendo…", 40, 300);
     });
 
-    autoUpdater.once("update-not-available", () =>
-      finishOk("Todo al día. Abriendo…", 60, 200)
-    );
+    autoUpdater.once("update-not-available", () => {
+      log("UPDATER: update-not-available");
+      finishOk("Todo al día. Abriendo…", 60, 200);
+    });
+
     autoUpdater.once("update-available", () => {
+      log("UPDATER: update-available");
       clearTimeout(watchdog);
       splashSet("Actualización encontrada. Descargando…", 25);
     });
@@ -489,10 +510,10 @@ async function runAutoUpdateGate() {
     autoUpdater.on("download-progress", onProgress);
 
     autoUpdater.once("update-downloaded", () => {
+      log("UPDATER: update-downloaded");
       splashSet("Instalando actualización…", 100);
 
-      // ✅ IMPORTANTÍSIMO en Windows:
-      // true = silent (NO abre instalador)
+      // ✅ Windows silent: evita que el usuario tenga que clicar
       setTimeout(() => autoUpdater.quitAndInstall(true, true), 600);
 
       // failsafe
@@ -609,21 +630,9 @@ if (process.platform === "linux") {
 }
 
 if (process.platform === "win32") {
-  const channel = (() => {
-    try {
-      const p = app.isPackaged
-        ? path.join(process.resourcesPath, "channel.json")
-        : path.join(__dirname, "build", "channel-stable.json");
-      return JSON.parse(fs.readFileSync(p, "utf8")).channel || "stable";
-    } catch {
-      return "stable";
-    }
-  })();
-
+  const ch = readChannel();
   app.setAppUserModelId(
-    channel === "beta"
-      ? "com.recipok.tpvrecipok.beta"
-      : "com.recipok.tpvrecipok"
+    ch === "beta" ? "com.recipok.tpvrecipok.beta" : "com.recipok.tpvrecipok"
   );
 }
 
