@@ -28,6 +28,6 @@
 
   "extraResources": [
     { "from": "build/channel-stable.json", "to": "channel.json" },
-    { "from": "assets/open-drawer.exe", "to": "open-drawer.exe" }
+    { "from": "assets/open-drawer.exe", "to": "assets/open-drawer.exe" }
   ]
 }
