@@ -7,9 +7,8 @@
     {
       "provider": "github",
       "owner": "recipokdev",
-      "repo": "TPVRecipok",
-      "releaseType": "prerelease",
-      "channel": "beta"
+      "repo": "TPVRecipok-Beta",
+      "releaseType": "prerelease"
     }
   ],
 
@@ -19,8 +18,7 @@
     "artifactName": "TPV-Recipok-Beta-Setup-${version}.${ext}",
     "executableName": "TPV-Recipok-Beta",
     "extraResources": [
-      { "from": "assets/open-drawer.exe", "to": "assets/open-drawer.exe" },
-      { "from": "build/channel-beta.json", "to": "channel.json" }
+      { "from": "assets/open-drawer.exe", "to": "assets/open-drawer.exe" }
     ]
   },
 
@@ -44,8 +42,10 @@
       {
         "from": "assets/udev/99-tpvrecipok-cashdrawer.rules",
         "to": "assets/udev/99-tpvrecipok-cashdrawer.rules"
-      },
-      { "from": "build/channel-beta.json", "to": "channel.json" }
+      }
     ]
-  }
+  },
+  "extraResources": [
+    { "from": "build/channel-beta.json", "to": "channel.json" }
+  ]
 }

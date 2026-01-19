@@ -381,23 +381,12 @@ function readChannel() {
   try {
     const p = app.isPackaged
       ? path.join(process.resourcesPath, "channel.json")
-      : path.join(__dirname, "build", "channel-beta.json"); // Cambia esto según pruebes
-
-    if (fs.existsSync(p)) {
-      const data = JSON.parse(fs.readFileSync(p, "utf8"));
-      return data.channel;
-    }
-  } catch (e) {
-    console.error("Error leyendo canal:", e);
+      : path.join(__dirname, "build", "channel-stable.json"); // en dev, stable
+    const data = JSON.parse(fs.readFileSync(p, "utf8"));
+    return data.channel === "beta" ? "beta" : "stable";
+  } catch {
+    return "stable";
   }
-
-  // BLINDAJE EXTRA: Si el nombre del producto contiene "Beta",
-  // no permitas que devuelva "stable" por error.
-  if (app.getName().includes("Beta") || app.isPackaged === false) {
-    return "beta";
-  }
-
-  return "stable";
 }
 
 const os = require("os");
@@ -420,71 +409,21 @@ async function runAutoUpdateGate() {
   createSplashWindow();
   splashSet("Buscando actualizaciones...", 20);
 
-  // Limpieza total ANTES de registrar eventos
   autoUpdater.removeAllListeners();
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = false;
 
-  const channel = readChannel(); // "beta" o "stable"
-
-  // 🔒 Blindaje por “feed”
-  if (channel === "beta") {
-    autoUpdater.allowPrerelease = true;
-    autoUpdater.allowDowngrade = false;
-
-    // Fuerza a usar beta.yml / beta-linux.yml
-    autoUpdater.channel = "beta";
-
-    autoUpdater.setFeedURL({
-      provider: "github",
-      owner: "recipokdev",
-      repo: "TPVRecipok",
-      releaseType: "prerelease",
-      channel: "beta",
-    });
-  } else {
-    autoUpdater.allowPrerelease = false;
-    autoUpdater.allowDowngrade = false;
-
-    // ✅ Stable: NO fijes channel (default => latest*.yml)
-    try {
-      delete autoUpdater.channel;
-    } catch {}
-
-    autoUpdater.setFeedURL({
-      provider: "github",
-      owner: "recipokdev",
-      repo: "TPVRecipok",
-      releaseType: "release",
-    });
-  }
-
-  // (Opcional) log a fichero para ver el error exacto en Linux
-  const log = (...a) => {
-    try {
-      fs.appendFileSync(
-        path.join(app.getPath("userData"), "updater.log"),
-        a.map((x) => String(x)).join(" ") + "\n"
-      );
-    } catch {}
-  };
-
-  log(
-    "UPDATER start",
-    "channel=",
-    channel,
-    "APPIMAGE=",
-    !!process.env.APPIMAGE
-  );
+  // ✅ NO setFeedURL
+  // ✅ NO tocar repo/owner aquí
+  // ✅ NO tocar channel aquí (si usas 2 repos)
 
   return await new Promise((resolve) => {
     let finished = false;
     const done = (r) => {
-      if (!finished) {
-        finished = true;
-        resolve(r);
-      }
+      if (finished) return;
+      finished = true;
+      resolve(r);
     };
 
     const onProgress = (p) => {
@@ -504,37 +443,25 @@ async function runAutoUpdateGate() {
     };
 
     autoUpdater.once("error", (err) => {
-      log("UPDATER error:", err?.message || err);
+      logUpdater("UPDATER error:", err?.message || err);
       finishOk("No se pudo comprobar. Abriendo…", 40, 300);
     });
 
-    autoUpdater.once("update-not-available", (info) => {
-      log("UPDATER: update-not-available");
-      log(
-        "DEBUG: Info recibida (not-available):",
-        info ? info.version : "null"
-      );
+    autoUpdater.once("update-not-available", () => {
+      logUpdater("UPDATER: update-not-available");
       finishOk("Todo al día. Abriendo…", 60, 200);
     });
 
-    autoUpdater.once("update-available", (info) => {
-      // --- LOGS CRÍTICOS ---
-      log("DEBUG: ¡Update Encontrado!");
-      log("DEBUG: Versión detectada:", info.version);
-      log("DEBUG: Canal del update detectado:", info.channel);
-      log("DEBUG: ¿Es Pre-release según info?:", info.releaseName);
-      // ---------------------
-
-      log("UPDATER: update-available");
+    autoUpdater.once("update-available", () => {
+      logUpdater("UPDATER: update-available");
       clearTimeout(watchdog);
       splashSet("Actualización encontrada. Descargando…", 25);
     });
 
     autoUpdater.on("download-progress", onProgress);
 
-    autoUpdater.once("update-downloaded", (info) => {
-      log("UPDATER: update-downloaded");
-      log("DEBUG: Update descargado versión:", info.version);
+    autoUpdater.once("update-downloaded", () => {
+      logUpdater("UPDATER: update-downloaded");
       splashSet("Instalando actualización…", 100);
 
       setTimeout(() => autoUpdater.quitAndInstall(true, true), 600);
@@ -545,19 +472,6 @@ async function runAutoUpdateGate() {
         } catch {}
       }, 20000);
     });
-
-    // --- LOGS DE INICIO DE COMPROBACIÓN ---
-    log("DEBUG: --- INICIANDO CHECK ---");
-    log("DEBUG: App Version actual:", app.getVersion());
-    log("DEBUG: Canal configurado (readChannel):", channel);
-    log("DEBUG: autoUpdater.channel (propiedad):", autoUpdater.channel);
-    log("DEBUG: allowPrerelease:", autoUpdater.allowPrerelease);
-
-    try {
-      log("DEBUG: URL de feed:", autoUpdater.getFeedURL());
-    } catch (e) {
-      log("DEBUG: No se pudo obtener URL del feed");
-    }
 
     autoUpdater.checkForUpdates();
   });
