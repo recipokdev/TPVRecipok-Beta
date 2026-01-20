@@ -1052,7 +1052,7 @@
               flex-wrap: wrap;
             "
           >
-            <div style="font-size: 13px; opacity: 0.85">Agrupar líneas</div>
+            <div style="font-size: 13px; opacity: 0.85">Desagrupar líneas</div>
 
             <label class="switch">
               <input type="checkbox" id="groupLinesToggle" />
@@ -1100,6 +1100,43 @@
           <div style="font-size: 12px; opacity: 0.7; margin-top: 6px">
             Se usa la impresora seleccionada para enviar la señal al cajón.
           </div>
+        </div>
+
+        <div
+          id="linuxSetupBlock"
+          style="
+            margin-top: 16px;
+            border-top: 1px solid #eee;
+            padding-top: 12px;
+            display: none;
+          "
+        >
+          <div style="font-weight: 700; margin-bottom: 6px">
+            Ayuda impresora
+          </div>
+
+          <div style="font-size: 12px; opacity: 0.75; margin-bottom: 10px">
+            Configura la impresora.
+          </div>
+
+          <div style="display: flex; gap: 10px; flex-wrap: wrap">
+            <button
+              type="button"
+              id="optionsSetupPosBtn"
+              class="pay-btn pay-btn-blue"
+            >
+              🛠️ Configurar impresora POS
+            </button>
+
+            <button type="button" id="optionsTestPosBtn" class="pay-btn">
+              🧾 Imprimir prueba
+            </button>
+          </div>
+
+          <div
+            id="optionsSetupMsg"
+            style="margin-top: 10px; font-size: 12px; opacity: 0.85"
+          ></div>
         </div>
 
         <div

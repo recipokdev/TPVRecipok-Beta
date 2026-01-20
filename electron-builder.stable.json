@@ -19,7 +19,17 @@
   "linux": {
     "target": ["deb", "AppImage"],
     "icon": "assets/icon.png",
-    "category": "Office"
+    "category": "Office",
+    "extraResources": [
+      {
+        "from": "assets/linux-tools/recipok-pos-printer-setup.sh",
+        "to": "linux-tools/recipok-pos-printer-setup.sh"
+      },
+      {
+        "from": "assets/linux-tools/recipok-pos-printer-test.sh",
+        "to": "linux-tools/recipok-pos-printer-test.sh"
+      }
+    ]
   },
 
   "nsis": {

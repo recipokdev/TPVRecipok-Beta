@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld("TPV_PRINT", {
   listPrinters: () => ipcRenderer.invoke("printers:list"),
   printTicket: ({ html, deviceName }) =>
     ipcRenderer.invoke("ticket:print", { html, deviceName }),
+  printRaw: ({ bytes, deviceName }) =>
+    ipcRenderer.invoke("ticket:printRaw", { bytes, deviceName }),
   openCashDrawer: async (deviceName) => {
     return await ipcRenderer.invoke("tpv:openCashDrawer", { deviceName });
   },
@@ -30,4 +32,13 @@ contextBridge.exposeInMainWorld("TPV_QUEUE", {
 
 contextBridge.exposeInMainWorld("TPV_SYS", {
   quit: () => ipcRenderer.invoke("app:quit"),
+});
+
+contextBridge.exposeInMainWorld("TPV_SETUP", {
+  setupPosPrinter: () => ipcRenderer.invoke("setup:posPrinter"),
+  testPosPrinter: () => ipcRenderer.invoke("setup:testPosPrinter"),
+});
+
+contextBridge.exposeInMainWorld("TPV_ENV", {
+  platform: process.platform, // "linux" / "win32"
 });

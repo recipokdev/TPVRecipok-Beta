@@ -51,7 +51,10 @@ body {
   font-weight: 600;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   cursor: pointer;
-  transition: background 0.15s, transform 0.05s, box-shadow 0.15s;
+  transition:
+    background 0.15s,
+    transform 0.05s,
+    box-shadow 0.15s;
 }
 
 .agent-main-bar .agent-btn.selected {
@@ -100,7 +103,9 @@ body {
   justify-content: center;
   cursor: pointer;
   font-size: 16px;
-  transition: background 0.15s, transform 0.05s;
+  transition:
+    background 0.15s,
+    transform 0.05s;
 }
 
 .search-bar .search-btn:hover {
@@ -136,7 +141,10 @@ body {
   align-items: center;
   gap: 6px;
   white-space: nowrap;
-  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    box-shadow 0.15s;
 }
 
 .category-btn::before {
@@ -223,7 +231,9 @@ body {
   cursor: pointer;
   color: #fff;
   display: block;
-  transition: transform 0.08s ease-out, box-shadow 0.12s ease-out;
+  transition:
+    transform 0.08s ease-out,
+    box-shadow 0.12s ease-out;
 }
 
 .product-tile:hover {
@@ -487,7 +497,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, transform 0.05s, box-shadow 0.15s;
+  transition:
+    background 0.15s,
+    transform 0.05s,
+    box-shadow 0.15s;
 }
 
 .qty-btn[data-action="plus"] {
@@ -541,7 +554,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, transform 0.05s;
+  transition:
+    background 0.15s,
+    transform 0.05s;
 }
 
 .line-delete-btn:hover {
@@ -572,7 +587,10 @@ body {
   font-weight: 600;
   cursor: pointer;
   outline: none;
-  transition: transform 0.05s ease, box-shadow 0.05s ease, opacity 0.2s;
+  transition:
+    transform 0.05s ease,
+    box-shadow 0.05s ease,
+    opacity 0.2s;
 }
 
 .cart-btn:active {
@@ -1214,7 +1232,9 @@ body.modal-locked .cart-card {
   border: 1px solid #e0e0e0;
   background: #fff;
   cursor: pointer;
-  transition: background 0.1s ease, box-shadow 0.1s ease;
+  transition:
+    background 0.1s ease,
+    box-shadow 0.1s ease;
 }
 
 .parked-ticket-item.parked-ticket-compact:hover {
@@ -1346,6 +1366,7 @@ body.modal-locked .cart-card {
   border: 1px solid #ccc;
   outline: none;
   box-sizing: border-box;
+  text-transform: uppercase;
 }
 
 #ticketsOverlay .parked-modal-body button#ticketsKeyboardBtn,
@@ -1531,7 +1552,9 @@ body.modal-locked .cart-card {
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
   opacity: 0;
   transform: translateY(10px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
   font-size: 14px;
 }
 
@@ -1620,7 +1643,9 @@ body.modal-locked .cart-card {
   min-width: 100px;
   text-align: center;
   font-size: 14px;
-  transition: transform 0.1s ease, outline 0.1s ease;
+  transition:
+    transform 0.1s ease,
+    outline 0.1s ease;
 }
 
 #loginUsersBar button:hover {

@@ -316,7 +316,7 @@ function renderCategories() {
   // Subfamilias visibles solo si hay padre activo
   if (sub && activeFamilyParentId) {
     const children = categories.filter(
-      (c) => c.parentId === activeFamilyParentId
+      (c) => c.parentId === activeFamilyParentId,
     );
 
     if (children.length) {
@@ -518,12 +518,6 @@ function updateCartItemQuantity(lineId, newQty) {
     item.qty = newQty;
   }
   renderCart();
-}
-
-function round2(n) {
-  const v = Number(n);
-  if (!isFinite(v)) return 0;
-  return Math.round(v * 100) / 100;
 }
 
 function getOriginalUnitGross(item) {
@@ -743,7 +737,7 @@ async function openLoginModal() {
     toast(
       "Primero debes introducir el email de tu empresa para activar el TPV.",
       "warn",
-      "Activación"
+      "Activación",
     );
     return false; // ← NO abrir login
   }
@@ -758,7 +752,7 @@ async function openLoginModal() {
 
   if (!overlay || !usersBar || !passInp || !okBtn || !exitBtn) {
     throw new Error(
-      "Falta el HTML del modal de login (loginUsersBar/loginPass/loginOkBtn/loginExitBtn)."
+      "Falta el HTML del modal de login (loginUsersBar/loginPass/loginOkBtn/loginExitBtn).",
     );
   }
 
@@ -810,7 +804,7 @@ async function openLoginModal() {
       btn.onclick = () => {
         selectedUser = u;
         [...usersBar.querySelectorAll("button")].forEach((b) =>
-          b.classList.remove("selected")
+          b.classList.remove("selected"),
         );
         btn.classList.add("selected");
         errEl.textContent = "";
@@ -889,7 +883,7 @@ async function openLoginModal() {
       const body = new URLSearchParams();
       body.append(
         "companyEmail",
-        localStorage.getItem("tpv_companyEmail") || ""
+        localStorage.getItem("tpv_companyEmail") || "",
       );
       body.append("user", u);
       body.append("pass", p);
@@ -963,7 +957,7 @@ function grossToNet(gross, taxRate) {
   const g = Number(gross) || 0;
   const t = Number(taxRate) || 0;
   const divisor = 1 + t / 100;
-  return divisor > 0 ? g / divisor : g;
+  return divisor > 0 ? round2(g / divisor) : round2(g);
 }
 
 // ===== Modal genérico de confirmación (usa msgOverlay) =====
@@ -1106,7 +1100,7 @@ function openNumPad(
   productName,
   mode = "qty",
   originalValue = null,
-  targetId = null
+  targetId = null,
 ) {
   numPadMode = mode;
   numPadOriginalUnitGross = originalValue;
@@ -1552,7 +1546,7 @@ if (cartLinesContainer) {
         openNumPad(
           item.qty,
           (newQty) => updateCartItemQuantity(lineId, newQty),
-          item.name
+          item.name,
         );
       }
 
@@ -1581,7 +1575,7 @@ if (cartLinesContainer) {
         item.name,
         "price",
         originalUnit,
-        lineId
+        lineId,
       );
 
       return;
@@ -1834,7 +1828,7 @@ function renderParkedTicketsModal() {
       <div class="pt-left">
         <div class="pt-title">Ticket #${t.id}</div>
         <div class="pt-sub">${hora} · ${escapeHtml(
-          t.clientName || "Cliente"
+          t.clientName || "Cliente",
         )}</div>
       </div>
 
@@ -1867,7 +1861,7 @@ function renderParkedTicketsModal() {
 
         const ok = await confirmModal(
           "Eliminar ticket aparcado",
-          `¿Seguro que quieres eliminar el Ticket #${t.id}?`
+          `¿Seguro que quieres eliminar el Ticket #${t.id}?`,
         );
         if (!ok) return;
 
@@ -2271,7 +2265,7 @@ function applyRemoteCajaToSession(remoteCaja) {
   const expectedCash = Number(
     remoteCaja.totalcaja != null
       ? remoteCaja.totalcaja
-      : opening + cashIncome + movements
+      : opening + cashIncome + movements,
   );
   const totalSales = Number(remoteCaja.totaltickets || 0);
 
@@ -2315,7 +2309,7 @@ function renderPayMethodsSummary() {
   box.style.display = "flex";
 
   entries.sort((a, b) =>
-    (a.label || a.code).localeCompare(b.label || b.code, "es")
+    (a.label || a.code).localeCompare(b.label || b.code, "es"),
   );
 
   entries.forEach((pm) => {
@@ -2464,7 +2458,7 @@ function openCashOpenDialog(mode = "open") {
   }
 
   const inputs = cashOpenOverlay.querySelectorAll(
-    ".cash-grid-page input[data-denom]"
+    ".cash-grid-page input[data-denom]",
   );
   inputs.forEach((inp) => (inp.value = "0"));
   cashOpenOverlay.querySelectorAll(".cash-qty").forEach((s) => {
@@ -2554,13 +2548,13 @@ if (cashMoveOverlay) {
 
 function getCashHiddenInput(denom) {
   return cashOpenOverlay?.querySelector(
-    `.cash-hidden-input[data-denom="${denom}"]`
+    `.cash-hidden-input[data-denom="${denom}"]`,
   );
 }
 
 function syncCashQtyLabel(denom, qty) {
   const label = cashOpenOverlay?.querySelector(
-    `.cash-qty[data-denom="${denom}"]`
+    `.cash-qty[data-denom="${denom}"]`,
   );
   if (label) label.textContent = String(qty);
 }
@@ -2618,7 +2612,7 @@ if (cashOpenOverlay && !cashOpenOverlay.dataset.cashBound) {
         String(current),
         (newQty) => setCashQtyByDenom(denom, newQty),
         `Cantidad de ${denom} €`,
-        "qty"
+        "qty",
       );
       return;
     }
@@ -2676,7 +2670,7 @@ function updateCashOpenTotal() {
 function syncCashInput(visibleInput) {
   const denom = visibleInput.dataset.denom;
   const hidden = document.querySelector(
-    `.cash-hidden-input[data-denom="${denom}"]`
+    `.cash-hidden-input[data-denom="${denom}"]`,
   );
 
   if (!hidden) return;
@@ -2704,9 +2698,9 @@ function registerPayMethodUsageForTicket(pagos) {
       .map((p) =>
         String(p?.codpago || "")
           .trim()
-          .toUpperCase()
+          .toUpperCase(),
       )
-      .filter(Boolean)
+      .filter(Boolean),
   );
 
   unique.forEach((key) => {
@@ -2736,7 +2730,7 @@ async function confirmCashOpening() {
     toast(
       "Caja abierta, pero no se pudo registrar en FacturaScripts.",
       "warn",
-      "Caja"
+      "Caja",
     );
   }
 
@@ -2767,7 +2761,7 @@ async function confirmCashClosing() {
     toast(
       "Caja cerrada, pero no se pudo registrar el cierre en FacturaScripts.",
       "warn",
-      "Caja"
+      "Caja",
     );
   }
 
@@ -2885,7 +2879,7 @@ async function fetchApiResource(resource) {
   if (res.status === 429) {
     throw new Error(
       "La API ha devuelto 429 (demasiadas peticiones). " +
-        "Es un bloqueo temporal por seguridad. Espera unos minutos antes de seguir usando el TPV."
+        "Es un bloqueo temporal por seguridad. Espera unos minutos antes de seguir usando el TPV.",
     );
   }
 
@@ -2903,7 +2897,7 @@ async function fetchApiResource(resource) {
 
   if (!res.ok) {
     throw new Error(
-      `HTTP ${res.status} en ${resource}: ${res.statusText || ""}`
+      `HTTP ${res.status} en ${resource}: ${res.statusText || ""}`,
     );
   }
 
@@ -2963,7 +2957,7 @@ async function fetchFormasPagoActivas(opts = {}) {
         .map((f) =>
           String(f.codpago || "")
             .trim()
-            .toUpperCase()
+            .toUpperCase(),
         );
     } catch (e) {
       window.__CASH_CODPAGOS__ = [];
@@ -3018,7 +3012,7 @@ if (terminalOkBtn) {
     if (terminals.length > 1 && terminalSelectWrapper && terminalSelect) {
       const selectedId = terminalSelect.value;
       selectedTerminal = terminals.find(
-        (t) => String(t.id) === String(selectedId)
+        (t) => String(t.id) === String(selectedId),
       );
       if (!selectedTerminal) {
         terminalErrorEl.textContent = "Selecciona un terminal válido.";
@@ -3090,7 +3084,7 @@ if (cashOpenOkBtn) {
     if (parkedCount > 0) {
       await confirmModal(
         "No puedes cerrar la caja",
-        `Tienes ${parkedCount} ticket(s) aparcado(s).\n\nRecupéralos (o elimínalos) antes de cerrar la caja.`
+        `Tienes ${parkedCount} ticket(s) aparcado(s).\n\nRecupéralos (o elimínalos) antes de cerrar la caja.`,
       );
       openParkedModal(); // 👈 llevarle directo a los aparcados
       return;
@@ -3141,7 +3135,7 @@ async function apiWrite(resource, method = "POST", fields = {}) {
       "HTTP",
       res.status,
       "Respuesta:",
-      text
+      text,
     );
     throw new Error(data?.message || `HTTP ${res.status} en ${resource}`);
   }
@@ -3209,7 +3203,7 @@ async function apiCreatePresupuestoFromCart(obs = "") {
     toast(
       "Ticket aparcado solo en local (no se registró en FacturaScripts).",
       "warn",
-      "Aparcar"
+      "Aparcar",
     );
     return null;
   }
@@ -3220,7 +3214,7 @@ function nowFs() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
-    d.getHours()
+    d.getHours(),
   )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
@@ -3355,7 +3349,7 @@ if (cashHeaderBtn) {
     if (TPV_STATE.locked) {
       showMessageModal(
         "Acceso bloqueado",
-        "Tu cuenta de TPV está desactivada. Contacta con soporte."
+        "Tu cuenta de TPV está desactivada. Contacta con soporte.",
       );
       return;
     }
@@ -3377,7 +3371,7 @@ if (cashHeaderBtn) {
         toast(
           "Sin conexión. Reintenta cuando tengas internet.",
           "warn",
-          "Caja"
+          "Caja",
         );
         return;
       }
@@ -3404,7 +3398,7 @@ if (cashHeaderBtn) {
             parkedCount === 1 ? "" : "s"
           } aparcado${
             parkedCount === 1 ? "" : "s"
-          }.\n\nAntes de cerrar la caja, recupera o elimina los tickets aparcados.`
+          }.\n\nAntes de cerrar la caja, recupera o elimina los tickets aparcados.`,
         );
         openParkedModal();
         return;
@@ -3506,7 +3500,7 @@ async function loadDataFromApi() {
       buildProductImagesMap().catch((e) => {
         console.warn(
           "No se pudieron cargar imágenes de productos:",
-          e.message || e
+          e.message || e,
         );
         return {};
       }),
@@ -3529,7 +3523,7 @@ async function loadDataFromApi() {
       if (Array.isArray(impuestosData)) {
         impuestosData.forEach((imp) => {
           const code = String(
-            imp.codimpuesto || imp.codigo || imp.id || ""
+            imp.codimpuesto || imp.codigo || imp.id || "",
           ).trim();
           if (!code) return;
 
@@ -3546,7 +3540,7 @@ async function loadDataFromApi() {
     } catch (e) {
       console.warn(
         "No se pudieron cargar los impuestos. Usaremos el % deducido del código (IVA10 → 10, IVA21 → 21, etc.):",
-        e.message || e
+        e.message || e,
       );
       taxRatesByCode = {}; // forzamos a que se use extractTaxRateFromCode
     }
@@ -3622,7 +3616,7 @@ async function loadDataFromApi() {
         if (base.bloqueado || isFalseFlag(base.sevende)) return;
 
         const baseName = String(
-          base.descripcion ?? base.referencia ?? ""
+          base.descripcion ?? base.referencia ?? "",
         ).trim();
         const category = String(base.codfamilia ?? "");
 
@@ -3776,7 +3770,7 @@ async function loadDataFromApi() {
         if (!agentsByTerminal[tpvKey]) agentsByTerminal[tpvKey] = [];
         if (
           !agentsByTerminal[tpvKey].some(
-            (a) => a.codagente === agentObj.codagente
+            (a) => a.codagente === agentObj.codagente,
           )
         ) {
           agentsByTerminal[tpvKey].push(agentObj);
@@ -3841,7 +3835,7 @@ async function loadCompanyLogoUrl() {
     if (!Array.isArray(files)) return "";
 
     const f = files.find(
-      (x) => Number(x.idfile) === Number(companyInfo.idlogo)
+      (x) => Number(x.idfile) === Number(companyInfo.idlogo),
     );
     if (!f) return "";
 
@@ -3937,7 +3931,7 @@ async function refreshTerminalsAndAgents() {
         if (!agentsByTerminal[tpvKey]) agentsByTerminal[tpvKey] = [];
         if (
           !agentsByTerminal[tpvKey].some(
-            (a) => a.codagente === agentObj.codagente
+            (a) => a.codagente === agentObj.codagente,
           )
         ) {
           agentsByTerminal[tpvKey].push(agentObj);
@@ -3952,7 +3946,7 @@ async function refreshTerminalsAndAgents() {
     // Reajustar currentTerminal / currentAgent si ya había algo seleccionado
     if (currentTerminal) {
       const updated = terminals.find(
-        (t) => String(t.id) === String(currentTerminal.id)
+        (t) => String(t.id) === String(currentTerminal.id),
       );
       if (!updated) {
         currentTerminal = null;
@@ -3963,7 +3957,7 @@ async function refreshTerminalsAndAgents() {
         if (
           !currentAgent ||
           !list.some(
-            (a) => a.codagente === (currentAgent && currentAgent.codagente)
+            (a) => a.codagente === (currentAgent && currentAgent.codagente),
           )
         ) {
           currentAgent = null;
@@ -3993,44 +3987,15 @@ function buildTicketPayloadFromCart() {
   }
 
   const cfg = window.RECIPOK_API || {};
-
-  // Cliente por defecto del TPV
   const codcliente = cfg.defaultCodClienteTPV || "1";
 
-  const lineas = cart.map((item) => {
-    const descripcion = item.secondaryName
-      ? `${item.name} - ${item.secondaryName}`
-      : item.name;
+  const lineas = buildFsLinesFromCart(cart);
 
-    const qty = item.qty || 1;
-
-    const unitGross = getUnitGross(item); // ✅ precio efectivo (override o normal)
-    const unitNet = grossToNet(unitGross, item.taxRate); // ✅ neto a enviar a FS
-
-    const linea = {
-      descripcion,
-      cantidad: qty,
-      pvpunitario: unitNet, // ✅ ahora sí respeta el override
-    };
-
-    if (item.codimpuesto) linea.codimpuesto = item.codimpuesto;
-    return linea;
-  });
-
-  // Payload mínimo que sabemos que funciona:
-  // - codcliente
-  // - lineas
-  // - pagada = 1 (marcamos el ticket como cobrado)
-  const payload = {
+  return {
     codcliente,
     lineas,
     pagada: 1,
   };
-
-  // ⚠ De momento NO mandamos fecha, hora, serie, forma de pago ni agente.
-  // Cuando todo vaya fino, los añadimos uno a uno.
-
-  return payload;
 }
 
 function buildPresupuestoPayloadFromCart(obs = "") {
@@ -4039,38 +4004,16 @@ function buildPresupuestoPayloadFromCart(obs = "") {
   }
 
   const cfg = window.RECIPOK_API || {};
-
   const codcliente = cfg.defaultCodClienteTPV || "1";
   const codalmacen = currentTerminal?.codalmacen || getLoginWarehouse() || "";
-  const codpago = "CONT"; // ajusta si usas otro
-  const codserie = "S"; // serie de presupuestos (ajústala si es otra)
+  const codpago = "CONT";
+  const codserie = "S";
 
-  // FacturaScripts normalmente acepta YYYY-MM-DD
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
-  const fecha = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
-    d.getDate()
-  )}`;
+  const fecha = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-  const lineas = cart.map((item) => {
-    const descripcion = item.secondaryName
-      ? `${item.name} - ${item.secondaryName}`
-      : item.name;
-
-    const qty = item.qty || 1;
-    const unitGross = getUnitGross(item);
-    const unitNet = grossToNet(unitGross, item.taxRate);
-
-    const linea = {
-      descripcion,
-      cantidad: qty,
-      pvpunitario: unitNet,
-    };
-
-    if (item.codimpuesto) linea.codimpuesto = item.codimpuesto;
-
-    return linea;
-  });
+  const lineas = buildFsLinesFromCart(cart);
 
   return {
     codcliente,
@@ -4126,7 +4069,7 @@ const optionsOpenDrawerBtn = document.getElementById("optionsOpenDrawerBtn");
 const payOpenDrawerBtn = document.getElementById("payOpenDrawerBtn");
 
 const optionsChangePrinterBtn = document.getElementById(
-  "optionsChangePrinterBtn"
+  "optionsChangePrinterBtn",
 );
 const currentPrinterNameEl = document.getElementById("currentPrinterName");
 const autoPrintToggle = document.getElementById("autoPrintToggle");
@@ -4201,6 +4144,7 @@ function refreshOptionsUI() {
 function openOptions() {
   refreshOptionsUI();
   optionsOverlay?.classList.remove("hidden");
+  onOptionsOverlayOpened();
   syncGroupLinesFromFS();
 }
 
@@ -4226,7 +4170,7 @@ autoPrintToggle?.addEventListener("change", () => {
         ? "Auto-impresión activada ✅"
         : "Auto-impresión desactivada",
       "info",
-      "Opciones"
+      "Opciones",
     );
   }
 });
@@ -4239,7 +4183,7 @@ groupLinesToggle?.addEventListener("change", async () => {
   toast?.(
     v ? "Agrupar líneas activado ✅" : "Agrupar líneas desactivado ✅",
     "info",
-    "Opciones"
+    "Opciones",
   );
 
   // Guardar en FacturaScripts para que quede sincronizado
@@ -4300,7 +4244,7 @@ async function handleOpenDrawerClick(btn) {
       toast?.(
         "No se pudo abrir el cajón: " + (r?.error || "error desconocido"),
         "err",
-        "Cajón"
+        "Cajón",
       );
     } else {
       toast?.("Cajón abierto ✅", "ok", "Cajón");
@@ -4329,18 +4273,18 @@ optionsQuitBtn?.addEventListener("click", async () => {
 
 // Opciones
 optionsOpenDrawerBtn?.addEventListener("click", () =>
-  handleOpenDrawerClick(optionsOpenDrawerBtn)
+  handleOpenDrawerClick(optionsOpenDrawerBtn),
 );
 
 // Cobrar
 payOpenDrawerBtn?.addEventListener("click", () =>
-  handleOpenDrawerClick(payOpenDrawerBtn)
+  handleOpenDrawerClick(payOpenDrawerBtn),
 );
 
 async function createRefundInFacturaScripts(
   facturaRow,
   qtyByLineId,
-  lineasFactura
+  lineasFactura,
 ) {
   const codcliente =
     facturaRow?._raw?.codcliente ||
@@ -4394,7 +4338,7 @@ async function createRefundInFacturaScripts(
       toast(
         "Sin conexión. Venta guardada y se enviará al volver internet.",
         "warn",
-        "Offline"
+        "Offline",
       );
       return { queued: true, payload }; // ✅ salimos sin tocar updateFacturaCliente
     }
@@ -4430,7 +4374,7 @@ async function createTicketInFacturaScripts(ticketPayload) {
   const cfg = window.RECIPOK_API || {};
   if (!cfg.baseUrl || !cfg.apiKey) {
     throw new Error(
-      "Config API de FacturaScripts no definida (baseUrl/apiKey)."
+      "Config API de FacturaScripts no definida (baseUrl/apiKey).",
     );
   }
 
@@ -4493,7 +4437,7 @@ async function createTicketInFacturaScripts(ticketPayload) {
     console.error("Error 429 crearFacturaCliente:", text);
     throw new Error(
       "La API ha devuelto 429 (demasiadas peticiones). " +
-        "Es un bloqueo temporal por seguridad; espera unos minutos antes de seguir usando el TPV."
+        "Es un bloqueo temporal por seguridad; espera unos minutos antes de seguir usando el TPV.",
     );
   }
 
@@ -4518,7 +4462,7 @@ async function createTicketInFacturaScripts(ticketPayload) {
   } catch (e) {
     console.error("No se pudo parsear JSON de crearFacturaCliente:", e);
     throw new Error(
-      "Respuesta no válida de FacturaScripts al crear la factura."
+      "Respuesta no válida de FacturaScripts al crear la factura.",
     );
   }
 
@@ -4663,11 +4607,21 @@ async function openPrinterPicker() {
 }
 
 async function ensurePrinterSelected() {
+  const isLinux = window.TPV_ENV?.platform === "linux";
   let name = getSavedPrinterName();
+
+  if (isLinux) {
+    if (!name) {
+      savePrinterName("RECIPOK_POS");
+      name = "RECIPOK_POS";
+    }
+    return name;
+  }
+
   if (name) return name;
 
   const chosen = await openPrinterPicker();
-  if (!chosen) return ""; // usuario canceló
+  if (!chosen) return "";
   savePrinterName(chosen);
   return chosen;
 }
@@ -4707,6 +4661,144 @@ async function getFormasPagoMap() {
     __formasPagoMapCache = {};
     return __formasPagoMapCache;
   }
+}
+
+function getTaxRateForLine(l) {
+  const direct = Number(l?.taxRate);
+  if (isFinite(direct) && direct > 0) return direct;
+
+  const fromCode = Number(extractTaxRateFromCode(l?.codimpuesto));
+  if (isFinite(fromCode) && fromCode > 0) return fromCode;
+
+  return 0;
+}
+
+function getUnitGrossForPrint(l) {
+  if (l && typeof l.__forceUnitGross === "number")
+    return Number(l.__forceUnitGross) || 0;
+  if (l && l.grossPriceOverride != null)
+    return Number(l.grossPriceOverride) || 0;
+  if (typeof l.grossPrice === "number" && !isNaN(l.grossPrice))
+    return Number(l.grossPrice);
+
+  if (typeof l.price === "number" && !isNaN(l.price)) {
+    const tax = getTaxRateForLine(l);
+    return Number(l.price) * (1 + tax / 100);
+  }
+
+  if (typeof l.pvpunitario !== "undefined") {
+    const tax = getTaxRateForLine(l);
+    return (Number(l.pvpunitario) || 0) * (1 + tax / 100);
+  }
+
+  return 0;
+}
+
+function calcTotalsAndTaxMap(lineas, totalsOnlyPositive) {
+  let totalToShow = 0;
+  const taxMap = {}; // { rate: { base, iva } }
+
+  for (const l of lineas || []) {
+    const qty = Number(l.qty ?? l.cantidad ?? 1) || 1;
+
+    const includeInTotals = totalsOnlyPositive ? qty > 0 : true;
+    if (!includeInTotals) continue;
+
+    const unitGross = getUnitGrossForPrint(l);
+    const lineGross = round2(unitGross * qty);
+
+    totalToShow = round2(totalToShow + lineGross);
+
+    const rate = getTaxRateForLine(l);
+    const divisor = 1 + rate / 100;
+
+    const lineBase =
+      divisor > 0 ? round2(lineGross / divisor) : round2(lineGross);
+    const lineIva = round2(lineGross - lineBase);
+
+    if (!taxMap[rate]) taxMap[rate] = { base: 0, iva: 0 };
+    taxMap[rate].base = round2(taxMap[rate].base + lineBase);
+    taxMap[rate].iva = round2(taxMap[rate].iva + lineIva);
+  }
+
+  return { totalToShow, taxMap };
+}
+
+function renderItemsHtml(doc, lineas) {
+  const itemsEl = doc.getElementById("items");
+  if (!itemsEl) return;
+
+  itemsEl.innerHTML = "";
+
+  for (const l of lineas || []) {
+    const name = (l.name || l.descripcion || "Producto").toString().trim();
+    const qty = Number(l.qty ?? l.cantidad ?? 1) || 1;
+
+    const unitGross = getUnitGrossForPrint(l);
+    const lineGross = unitGross * qty;
+
+    const div = doc.createElement("div");
+    div.className = "item";
+    div.innerHTML = `
+      <div class="item-top">
+        <div class="qty">${qty}</div>
+        <div class="desc">${escapeHtml(name)}</div>
+        <div class="ltotal">${eurTicket(lineGross)}</div>
+      </div>
+    `;
+    itemsEl.appendChild(div);
+  }
+}
+
+function renderTaxSummaryHtml(doc, taxMap) {
+  const taxSummaryEl = doc.getElementById("taxSummary");
+  if (!taxSummaryEl) return;
+
+  taxSummaryEl.innerHTML = "";
+
+  const ratesSorted = Object.keys(taxMap)
+    .map((r) => Number(r))
+    .filter((r) => !isNaN(r) && r !== 0)
+    .sort((a, b) => a - b);
+
+  for (const r of ratesSorted) {
+    appendRow(taxSummaryEl, `Base Imponible ${r}%`, eurTicket(taxMap[r].base));
+    appendRow(taxSummaryEl, `IVA ${r}%`, eurTicket(taxMap[r].iva));
+  }
+}
+
+function buildFsLinesFromCart(cartArr) {
+  if (!Array.isArray(cartArr) || cartArr.length === 0) return [];
+
+  return cartArr.map((item) => {
+    const descripcion = item.secondaryName
+      ? `${item.name} - ${item.secondaryName}`
+      : item.name;
+
+    const qty = Number(item.qty || 1) || 1;
+
+    // ✅ precio efectivo (override o normal)
+    const unitGross = getUnitGross(item);
+
+    // ✅ neto a enviar a FS (porque FS espera pvpunitario neto)
+    const unitNet = grossToNet(unitGross, item.taxRate);
+
+    const linea = {
+      descripcion,
+      cantidad: qty,
+      pvpunitario: unitNet,
+    };
+
+    if (item.codimpuesto) linea.codimpuesto = item.codimpuesto;
+
+    return linea;
+  });
+}
+
+function round2(n) {
+  const v = Number(n);
+  if (!isFinite(v)) return 0;
+  return Math.round((v + Number.EPSILON) * 100) / 100;
 }
 
 function eurTicket(n) {
@@ -4765,6 +4857,55 @@ async function renderPayments(doc, ticket, totalToShow) {
   });
 }
 
+function buildEscposTicketBytes(ticket, lineas, totalToShow) {
+  const ESC = 0x1b;
+  const GS = 0x1d;
+
+  const out = [];
+  const enc = new TextEncoder();
+
+  const push = (s) => out.push(...enc.encode(String(s)));
+  const hr = () => push("--------------------------------\n");
+
+  out.push(ESC, 0x40); // init
+
+  const emp = ticket.company || companyInfo || {};
+  const term = (currentTerminal?.name || ticket.terminalName || "").trim();
+  const ag = (currentAgent?.name || ticket.agentName || "").trim();
+
+  push((emp.nombrecorto || "RECIPOK") + "\n");
+  if (emp.cifnif) push(String(emp.cifnif) + "\n");
+  hr();
+
+  push(`Ticket: ${ticket.numero ?? "—"}\n`);
+  const fecha = (ticket.fecha || "").trim();
+  const hora = (ticket.hora || "").trim();
+  if (fecha || hora) push(`Fecha: ${fecha} ${hora}\n`);
+  if ((ticket.clientName || "").trim()) push(`Cliente: ${ticket.clientName}\n`);
+  if (term) push(`Terminal: ${term}\n`);
+  if (ag) push(`Agente: ${ag}\n`);
+  push("\n");
+
+  for (const l of lineas || []) {
+    const name = (l.name || l.descripcion || "Producto").toString().trim();
+    const qty = Number(l.qty ?? l.cantidad ?? 1) || 1;
+
+    const unitGross = getUnitGrossForPrint(l);
+    const lineGross = unitGross * qty;
+
+    push(`${qty} x ${name}\n`);
+    push(`   ${eurTicket(lineGross)}\n`);
+  }
+
+  push("\n");
+  hr();
+  push(`TOTAL: ${eurTicket(totalToShow)}\n`);
+  push("\n\n");
+
+  out.push(GS, 0x56, 0x42, 0x60); // cut+feed
+  return out;
+}
+
 async function printTicket(ticket) {
   try {
     if (!ticket) {
@@ -4772,7 +4913,7 @@ async function printTicket(ticket) {
       return;
     }
 
-    console.log("[printTicket] ticket:", ticket);
+    const isLinux = window.TPV_ENV?.platform === "linux";
 
     const printerName = await ensurePrinterSelected();
     if (!printerName) {
@@ -4780,83 +4921,33 @@ async function printTicket(ticket) {
       return;
     }
 
-    // 1) Cargar plantilla
-    let templateHtml = "";
-    try {
-      const res = await fetch("ticket_print.html", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      templateHtml = await res.text();
-    } catch (e) {
-      toast(
-        "No puedo cargar ticket_print.html: " + (e.message || e),
-        "err",
-        "Impresión"
-      );
-      return;
-    }
-
-    const doc = new DOMParser().parseFromString(templateHtml, "text/html");
-
-    // Helpers fecha/hora
+    // 1) Fecha/hora base
     const now = new Date();
     const fecha = ticket.fecha || now.toLocaleDateString("es-ES");
     const hora =
       ticket.hora ||
       now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
-    const raw = ticket._raw || {};
-    const codserie = String(raw.codserie || "").toUpperCase();
-    let isRect = codserie === "R"; // de momento, solo por serie
+
+    // 2) Reconstrucción de líneas (tu lógica intacta)
+    const raw0 = ticket._raw || {};
+    const codserie0 = String(raw0.codserie || "").toUpperCase();
+    let isRect = codserie0 === "R";
     let isFullyRefundedOriginal = false;
 
-    setText(doc, "invoiceNumber", ticket.numero != null ? ticket.numero : "—");
-    setText(doc, "ticketDate", `${fecha} ${hora}`);
-    setText(doc, "clientName", (ticket.clientName || "").trim() || "Cliente");
-
-    // 3) Empresa
-    const emp = ticket.company || companyInfo || null;
-    const logoEl = doc.getElementById("companyLogo");
-    const logoUrl = companyLogoUrl || "";
-    if (logoEl && logoUrl) {
-      logoEl.setAttribute("src", logoUrl);
-      logoEl.style.display = "inline-block";
-    }
-    setText(doc, "companyShortName", emp?.nombrecorto || "—");
-    setText(doc, "companyLegalName", emp?.nombre || "");
-    setText(doc, "companyAddress", emp?.direccion || "");
-    setText(doc, "companyZip", emp?.codpostal ? emp.codpostal + ", " : "");
-    setText(doc, "companyCity", emp?.ciudad || "");
-    setText(doc, "companyCif", emp?.cifnif || "—");
-    setText(doc, "companyPhone", emp?.telefono1 || "");
-
-    // 4) TPV / agente
-    const terminalTexto =
-      (currentTerminal?.name || ticket.terminalName || "").trim() || "—";
-    const agenteTexto =
-      (currentAgent?.name || ticket.agentName || "").trim() || "—";
-    setText(doc, "terminalName", terminalTexto);
-    setText(doc, "agentName", agenteTexto);
-
-    // 5) Líneas
-    const itemsEl = doc.getElementById("items");
-    if (itemsEl) itemsEl.innerHTML = "";
-
     let lineas = Array.isArray(ticket.lineas) ? ticket.lineas : [];
-    let totalsOnlyPositive = false; // <- clave para PARCIAL
+    let totalsOnlyPositive = false;
 
-    // Si es original (no rectificativa) y tiene idfactura, reconstruimos:
-    // + pendiente (pos) y - devuelto (neg)
     try {
       const raw = ticket._raw || {};
       const idfacturarect =
         Number(ticket.idfacturarect || raw.idfacturarect || 0) || 0;
       const codserie = String(raw.codserie || "").toUpperCase();
-
       const isRectificativa = idfacturarect > 0 || codserie === "R";
 
       if (!isRectificativa && ticket.idfactura) {
         const origLines = await fetchLineasFactura(ticket.idfactura);
         const refundedMap = await buildRefundedQtyMapForOriginal(
-          ticket.idfactura
+          ticket.idfactura,
         );
 
         const rebuilt = [];
@@ -4866,7 +4957,7 @@ async function printTicket(ticket) {
           const k = lineKeyForMatch(
             l.descripcion,
             l.pvpunitario,
-            l.codimpuesto
+            l.codimpuesto,
           );
           const refunded = Number(refundedMap[k] || 0);
           const pending = Math.max(0, sold - refunded);
@@ -4897,156 +4988,145 @@ async function printTicket(ticket) {
           }
         }
 
-        // Si hemos metido DEV negativas, esto es “PARCIAL” => totales solo positivas
         const hasNeg = rebuilt.some((x) => Number(x.cantidad) < 0);
         const hasPos = rebuilt.some((x) => Number(x.cantidad) > 0);
         totalsOnlyPositive = hasNeg && hasPos;
 
         lineas = rebuilt;
-        // ✅ si NO es rectificativa por serie (A/S/etc) pero tiene SOLO devoluciones (sin pendiente),
-        // entonces está devuelta al 100% y queremos etiquetarla como "Rectificativa"
         isFullyRefundedOriginal = hasNeg && !hasPos;
       }
     } catch (e) {
       console.warn(
-        "[printTicket] No pude reconstruir líneas con devoluciones:",
-        e
+        "[printTicket] reconstrucción líneas falló:",
+        e?.message || e,
       );
     }
 
-    // ✅ decisión final del tipo de factura
-    if (!isRect && isFullyRefundedOriginal) {
-      isRect = true;
+    if (!isRect && isFullyRefundedOriginal) isRect = true;
+
+    // 3) Totales + IVA/Base (una sola vez)
+    const { totalToShow, taxMap } = calcTotalsAndTaxMap(
+      lineas,
+      totalsOnlyPositive,
+    );
+
+    // 4) Linux: RAW ESC/POS y salir
+    if (isLinux) {
+      if (!window.TPV_PRINT?.printRaw) {
+        toast("Falta printRaw en TPV_PRINT (preload/IPC).", "err", "Impresión");
+        return;
+      }
+
+      const ticketForRaw = { ...ticket, fecha, hora };
+
+      const bytes = buildEscposTicketBytes(ticketForRaw, lineas, totalToShow);
+
+      const r = await window.TPV_PRINT.printRaw({
+        bytes,
+        deviceName: printerName, // en Linux: RECIPOK_POS
+      });
+
+      if (!r || !r.ok) {
+        toast(
+          "No se pudo imprimir (Linux RAW): " + (r?.error || "error"),
+          "err",
+          "Impresión",
+        );
+        return;
+      }
+
+      toast("Ticket impreso ✅", "ok", "Impresión");
+
+      const isCash = Array.isArray(ticket.pagos)
+        ? ticket.pagos.some(isCashPago)
+        : true;
+      if (isCash && Number(totalToShow) > 0) {
+        const drawer = await window.TPV_PRINT.openCashDrawer(printerName);
+        if (!drawer || !drawer.ok)
+          toast(
+            "Ticket impreso, pero no se pudo abrir el cajón.",
+            "warn",
+            "Cajón",
+          );
+      }
+      return;
     }
+
+    // 5) Windows: HTML
+    let templateHtml = "";
+    try {
+      const res = await fetch("ticket_print.html", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      templateHtml = await res.text();
+    } catch (e) {
+      toast(
+        "No puedo cargar ticket_print.html: " + (e?.message || e),
+        "err",
+        "Impresión",
+      );
+      return;
+    }
+
+    const doc = new DOMParser().parseFromString(templateHtml, "text/html");
 
     setText(
       doc,
       "invoiceLabel",
-      isRect ? "Factura Rectificativa" : "Factura Simplificada"
+      isRect ? "Factura Rectificativa" : "Factura Simplificada",
     );
+    setText(doc, "invoiceNumber", ticket.numero != null ? ticket.numero : "—");
+    setText(doc, "ticketDate", `${fecha} ${hora}`);
+    setText(doc, "clientName", (ticket.clientName || "").trim() || "Cliente");
 
-    // 6) Calcular IVA y totales
-    let totalToShow = 0;
-    const taxMap = {}; // { rate: { base, iva } }
-
-    for (const l of lineas) {
-      const name = (l.name || l.descripcion || "Producto").toString().trim();
-      const qty = Number(l.qty ?? l.cantidad ?? 1) || 1;
-
-      // Precio bruto unitario (IVA incluido)
-      let unitGross = 0;
-
-      // 1) forzado (reconstrucción)
-      if (l && typeof l.__forceUnitGross === "number") {
-        unitGross = Number(l.__forceUnitGross) || 0;
-      }
-      // 2) override manual TPV
-      else if (l && l.grossPriceOverride != null) {
-        unitGross = Number(l.grossPriceOverride) || 0;
-      }
-      // 3) ya bruto
-      else if (typeof l.grossPrice === "number" && !isNaN(l.grossPrice)) {
-        unitGross = Number(l.grossPrice);
-      }
-      // 4) neto + IVA
-      else if (typeof l.price === "number" && !isNaN(l.price)) {
-        const tax = Number(l.taxRate ?? 0) || 0;
-        unitGross = Number(l.price) * (1 + tax / 100);
-      }
-      // 5) FS neto + IVA
-      else if (typeof l.pvpunitario !== "undefined") {
-        const tax =
-          Number(l.taxRate ?? extractTaxRateFromCode(l.codimpuesto) ?? 0) || 0;
-        unitGross = (Number(l.pvpunitario) || 0) * (1 + tax / 100);
-      }
-
-      const rate =
-        Number(l.taxRate ?? extractTaxRateFromCode(l.codimpuesto) ?? 0) || 0;
-
-      const lineGross = unitGross * qty;
-
-      // ✅ Render SIEMPRE (para ver DEV negativas)
-      if (itemsEl) {
-        const div = doc.createElement("div");
-        div.className = "item";
-        div.innerHTML = `
-          <div class="item-top">
-            <div class="qty">${qty}</div>
-            <div class="desc">${escapeHtml(name)}</div>
-            <div class="ltotal">${eurTicket(lineGross)}</div>
-          </div>
-        `;
-        itemsEl.appendChild(div);
-      }
-
-      // ✅ Totales/IVA:
-      // - Si es PARCIAL (original + DEV), solo contamos qty > 0
-      // - Si NO, contamos todo (incluye rectificativas negativas)
-      const includeInTotals = totalsOnlyPositive ? qty > 0 : true;
-      if (!includeInTotals) continue;
-
-      totalToShow += lineGross;
-
-      const divisor = 1 + rate / 100;
-      const lineBase = divisor > 0 ? lineGross / divisor : lineGross;
-      const lineIva = lineGross - lineBase;
-
-      if (!taxMap[rate]) taxMap[rate] = { base: 0, iva: 0 };
-      taxMap[rate].base += lineBase;
-      taxMap[rate].iva += lineIva;
+    const emp = ticket.company || companyInfo || null;
+    const logoEl = doc.getElementById("companyLogo");
+    const logoUrl = companyLogoUrl || "";
+    if (logoEl && logoUrl) {
+      logoEl.setAttribute("src", logoUrl);
+      logoEl.style.display = "inline-block";
     }
+    setText(doc, "companyShortName", emp?.nombrecorto || "—");
+    setText(doc, "companyLegalName", emp?.nombre || "");
+    setText(doc, "companyAddress", emp?.direccion || "");
+    setText(doc, "companyZip", emp?.codpostal ? emp.codpostal + ", " : "");
+    setText(doc, "companyCity", emp?.ciudad || "");
+    setText(doc, "companyCif", emp?.cifnif || "—");
+    setText(doc, "companyPhone", emp?.telefono1 || "");
 
-    // 7) Desglose IVA
-    const taxSummaryEl = doc.getElementById("taxSummary");
-    if (taxSummaryEl) taxSummaryEl.innerHTML = "";
+    const terminalTexto =
+      (currentTerminal?.name || ticket.terminalName || "").trim() || "—";
+    const agenteTexto =
+      (currentAgent?.name || ticket.agentName || "").trim() || "—";
+    setText(doc, "terminalName", terminalTexto);
+    setText(doc, "agentName", agenteTexto);
 
-    const ratesSorted = Object.keys(taxMap)
-      .map((r) => Number(r))
-      .filter((r) => !isNaN(r) && r !== 0)
-      .sort((a, b) => a - b);
+    renderItemsHtml(doc, lineas);
+    renderTaxSummaryHtml(doc, taxMap);
 
-    for (const r of ratesSorted) {
-      appendRow(
-        taxSummaryEl,
-        `Base Imponible ${r}%`,
-        eurTicket(taxMap[r].base)
-      );
-      appendRow(taxSummaryEl, `IVA ${r}%`, eurTicket(taxMap[r].iva));
-    }
-
-    // 8) Total + pagos (con nombres bonitos)
-    // Si NO has cambiado el HTML, esto al menos seguirá rellenando paymentMethod/paidAmount
     setText(doc, "grandTotal", eurTicket(totalToShow));
-
-    // Pintar pagos como:
-    // Total 5,20
-    // Al contado 3,00
-    // Bizum 2,20
     await renderPayments(doc, ticket, totalToShow);
 
     const finalHtml = "<!doctype html>\n" + doc.documentElement.outerHTML;
 
-    const isCash = Array.isArray(ticket.pagos)
-      ? ticket.pagos.some(isCashPago)
-      : true;
-
-    const res = await window.TPV_PRINT.printTicket({
+    const r2 = await window.TPV_PRINT.printTicket({
       html: finalHtml,
       deviceName: printerName,
     });
 
-    if (!res || !res.ok) {
+    if (!r2 || !r2.ok) {
       toast(
-        "No se pudo imprimir: " + (res?.error || "error desconocido"),
+        "No se pudo imprimir: " + (r2?.error || "error desconocido"),
         "err",
-        "Impresión"
+        "Impresión",
       );
       return;
     }
 
     toast("Ticket impreso ✅", "ok", "Impresión");
 
-    // Abrir cajón solo si es efectivo y hay algo cobrado (>0)
+    const isCash = Array.isArray(ticket.pagos)
+      ? ticket.pagos.some(isCashPago)
+      : true;
     if (isCash && Number(totalToShow) > 0) {
       const drawer = await window.TPV_PRINT.openCashDrawer(printerName);
       if (!drawer || !drawer.ok) {
@@ -5054,7 +5134,7 @@ async function printTicket(ticket) {
           "Ticket impreso, pero no se pudo abrir el cajón: " +
             (drawer?.error || "error desconocido"),
           "warn",
-          "Cajón"
+          "Cajón",
         );
       }
     }
@@ -5074,7 +5154,7 @@ function appendRow(container, left, right) {
   const div = container.ownerDocument.createElement("div");
   div.className = "row small";
   div.innerHTML = `<div class="col-left">${escapeHtml(
-    left
+    left,
   )}</div><div class="col-right">${escapeHtml(right)}</div>`;
   container.appendChild(div);
 }
@@ -5130,7 +5210,7 @@ async function onPayButtonClick() {
 
     if (!ticketPayload.idtpv || !ticketPayload.idcaja) {
       throw new Error(
-        "No hay caja abierta en FacturaScripts (idtpv/idcaja vacíos). Abre caja antes de cobrar."
+        "No hay caja abierta en FacturaScripts (idtpv/idcaja vacíos). Abre caja antes de cobrar.",
       );
     }
 
@@ -5192,7 +5272,7 @@ async function onPayButtonClick() {
         lastTicket = buildOfflineTicketPrintData(
           cartSnapshot,
           ticketPayload,
-          payResult
+          payResult,
         );
 
         // ✅ si quieres que aparezca en el modal Tickets mientras está offline:
@@ -5208,7 +5288,7 @@ async function onPayButtonClick() {
 
           // ✅ TOTAL REAL (no ticketPayload.total)
           total: Number(
-            payResult?.total ?? totalCart ?? ticketPayload?.total ?? 0
+            payResult?.total ?? totalCart ?? ticketPayload?.total ?? 0,
           ),
 
           codpago:
@@ -5294,7 +5374,7 @@ async function onPayButtonClick() {
       }
     } else {
       console.warn(
-        "No hay idfactura/codcliente: no se pudieron crear recibos."
+        "No hay idfactura/codcliente: no se pudieron crear recibos.",
       );
     }
     // ✅ Limpieza: elimina el recibo "total" automático y deja SOLO los recibos por método
@@ -5317,7 +5397,7 @@ async function onPayButtonClick() {
       } catch (e) {
         console.warn(
           "No se pudo completar codigo desde facturaclientes:",
-          e?.message || e
+          e?.message || e,
         );
       }
     }
@@ -5371,7 +5451,7 @@ async function onPayButtonClick() {
         ? `Venta cobrada ✅ (${ticketPayload.paymentMethod} - ${lastTicket.numero})`
         : `Venta cobrada ✅ (${ticketPayload.paymentMethod})`,
       "ok",
-      "Cobrar"
+      "Cobrar",
     );
     // ✅ Auto-impresión (solo si el check está activado)
     if (isAutoPrintEnabled()) {
@@ -5382,7 +5462,7 @@ async function onPayButtonClick() {
         toast(
           "Venta cobrada, pero no se pudo imprimir automáticamente.",
           "warn",
-          "Impresión"
+          "Impresión",
         );
       }
     }
@@ -5487,7 +5567,7 @@ async function apiUpdateCajaAfterSale({ totalVenta, pagos }) {
     "CASH_CODPAGOS:",
     Array.from(CASH_CODPAGOS),
     "contado:",
-    contado
+    contado,
   );
 
   cashSession.cashSalesTotal =
@@ -5571,7 +5651,7 @@ function buildCashCodpagosFromFormapagos(list) {
       (x) =>
         String(x.codpago || "")
           .trim()
-          .toUpperCase() === "CONT"
+          .toUpperCase() === "CONT",
     )
   ) {
     s.add("CONT");
@@ -6012,7 +6092,7 @@ async function openPayModal(total) {
         // 2) Suma entregado total (sirve para validar que se cubre el total)
         const pagadoEntregado = entregados.reduce(
           (s, p) => s + (p.entregado || 0),
-          0
+          0,
         );
 
         if (pagadoEntregado + 0.00001 < total) {
@@ -6034,7 +6114,7 @@ async function openPayModal(total) {
         }
 
         const nonCashSum = Number(
-          nonCash.reduce((s, p) => s + p.entregado, 0).toFixed(2)
+          nonCash.reduce((s, p) => s + p.entregado, 0).toFixed(2),
         );
 
         // cash aplicado = lo que falta después del no-cash
@@ -6042,7 +6122,7 @@ async function openPayModal(total) {
 
         // cash entregado total (puede ser mayor)
         const cashGiven = Number(
-          cash.reduce((s, p) => s + p.entregado, 0).toFixed(2)
+          cash.reduce((s, p) => s + p.entregado, 0).toFixed(2),
         );
 
         // cambio sale solo del cash
@@ -6174,7 +6254,7 @@ async function openTicketsModal() {
     toast(
       "Falta el HTML del modal de tickets (#ticketsOverlay).",
       "err",
-      "Tickets"
+      "Tickets",
     );
     return;
   }
@@ -6265,7 +6345,7 @@ function renderRefundChildRow(r) {
         <div class="ticket-num" style="font-weight:600;">
           ↩ ${escapeHtml(num)}
           <span style="margin-left:10px; opacity:.75;">De: ${escapeHtml(
-            r._origCodigo || r.codigorect || ""
+            r._origCodigo || r.codigorect || "",
           )}</span>
         </div>
         <div class="ticket-bot">${escapeHtml(fechaHora)}</div>
@@ -6287,13 +6367,22 @@ function renderTicketsList(tickets) {
   const term = (ticketsSearch?.value || "").trim().toLowerCase();
   let list = Array.isArray(tickets) ? tickets : [];
 
-  // Buscar
+  // Buscar (incluye rectificativas hijas)
   if (term) {
-    list = list.filter((t) => {
+    const matchesTicket = (t) => {
       const s = `${t.codigo || ""} ${t.nombrecliente || ""} ${t.total || ""} ${
         t.codpago || ""
-      }`.toLowerCase();
+      } ${t.codserie || ""} ${t.idfactura || ""} ${t.codigorect || ""}`.toLowerCase();
       return s.includes(term);
+    };
+
+    list = list.filter((t) => {
+      // 1) si el propio ticket coincide, pasa
+      if (matchesTicket(t)) return true;
+
+      // 2) si alguna rectificativa hija coincide, también pasa el original
+      const refunds = Array.isArray(t._refunds) ? t._refunds : [];
+      return refunds.some(matchesTicket);
     });
   }
 
@@ -6351,9 +6440,9 @@ function renderTicketsList(tickets) {
 
     if (hasRefunds && !isFullyRefunded) {
       totalHtml = `${eurES(
-        totalNum
+        totalNum,
       )} <span style="font-size:12px; font-weight:800; opacity:.85;">(${eurES(
-        remaining
+        remaining,
       )} Rest)</span>`;
     }
 
@@ -6455,13 +6544,13 @@ function renderTicketsList(tickets) {
 
           return `
             <div class="ticket-row ticket-status-fullref ticket-child" data-id="${Number(
-              r.idfactura || 0
+              r.idfactura || 0,
             )}">
               <div class="ticket-left">
                 <div class="ticket-num">
                   ↩ ${escapeHtml(rnum)}
                   <span style="margin-left:8px; font-size:12px; opacity:.7;">De: ${escapeHtml(
-                    num
+                    num,
                   )}</span>
                 </div>
                 <div class="ticket-bot">${escapeHtml(rFechaHora)}</div>
@@ -6637,7 +6726,7 @@ async function resolveCompanyByEmail(email) {
 
   const data = await fetchClientsJson();
   const client = (data.clients || []).find(
-    (c) => normalizeEmail(c.email) === e
+    (c) => normalizeEmail(c.email) === e,
   );
 
   if (!client) throw new Error("Cuenta no encontrada");
@@ -6718,7 +6807,7 @@ async function forceReconnectFlow() {
       updateCashButtonLabel();
       showMessageModal(
         "Acceso bloqueado",
-        "Tu cuenta de TPV está desactivada. Contacta con soporte."
+        "Tu cuenta de TPV está desactivada. Contacta con soporte.",
       );
       return false;
     }
@@ -6800,7 +6889,7 @@ async function bootstrapCompany() {
         toast(
           "Activación cancelada. Arrancando en modo demo.",
           "warn",
-          "Activación"
+          "Activación",
         );
         TPV_STATE.offline = true;
         TPV_STATE.locked = false;
@@ -6821,7 +6910,7 @@ async function bootstrapCompany() {
         updateCashButtonLabel();
         showMessageModal(
           "Acceso bloqueado",
-          "Tu cuenta de TPV está desactivada. Contacta con soporte."
+          "Tu cuenta de TPV está desactivada. Contacta con soporte.",
         );
         return null; // bloqueado
       }
@@ -6837,7 +6926,7 @@ async function bootstrapCompany() {
 
     if (!client) {
       console.warn(
-        "Email guardado ya no existe en clients.json. Pidiendo de nuevo..."
+        "Email guardado ya no existe en clients.json. Pidiendo de nuevo...",
       );
       const resolved = await askAndResolve();
       if (!resolved) return false;
@@ -6857,7 +6946,7 @@ async function bootstrapCompany() {
       updateCashButtonLabel();
       showMessageModal(
         "Acceso bloqueado",
-        "Tu cuenta de TPV está desactivada. Contacta con soporte."
+        "Tu cuenta de TPV está desactivada. Contacta con soporte.",
       );
       return false;
     }
@@ -6991,7 +7080,7 @@ async function deleteReciboCliente(idrecibo) {
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
     throw new Error(
-      `Error borrando recibo ${idrecibo}: HTTP ${res.status} ${txt}`
+      `Error borrando recibo ${idrecibo}: HTTP ${res.status} ${txt}`,
     );
   }
   return true;
@@ -7024,7 +7113,7 @@ async function cleanupRecibosFactura(idfactura, pagosEsperados) {
     const imp = round2(r.importe);
 
     const idx = expectedPool.findIndex(
-      (e) => e.codpago === cod && e.importe === imp
+      (e) => e.codpago === cod && e.importe === imp,
     );
     if (idx >= 0) {
       expectedPool.splice(idx, 1); // consumimos este esperado
@@ -7047,7 +7136,7 @@ async function cleanupRecibosFactura(idfactura, pagosEsperados) {
       console.warn(
         "No se pudo borrar recibo duplicado:",
         idrecibo,
-        e?.message || e
+        e?.message || e,
       );
     }
   }
@@ -7120,7 +7209,7 @@ async function fetchProductFileRelations() {
     (r) =>
       String(r.model || "") === "Producto" &&
       r.idfile != null &&
-      r.modelid != null
+      r.modelid != null,
   );
 }
 
@@ -7172,38 +7261,36 @@ async function buildProductImagesMap() {
 
 async function fetchUltimosTickets(limit = 60, days = 30) {
   const onlyTpvId = String(currentTerminal?.id || "");
+
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
     .toISOString()
-    .slice(0, 10); // YYYY-MM-DD
+    .slice(0, 10);
 
-  // Pedimos más de lo necesario para poder filtrar bien
   const rows = await fetchApiResourceWithParams("facturaclientes", {
-    limit: Math.max(200, limit * 4),
-    order: "desc",
-
-    // ✅ Si tu FacturaScripts soporta estos filtros, perfecto:
-    ...(onlyTpvId ? { "filter[idtpv]": onlyTpvId } : {}),
+    limit: 300, // Pedimos bastantes para asegurar que entren originales y sus abonos
+    order: "idfactura_desc", // Traemos lo más nuevo primero
     "filter[fecha_gte]": since,
   });
 
-  // Mapeo a tu formato UI
   let list = (Array.isArray(rows) ? rows : []).map(mapFacturaRowToTicketRow);
 
-  // ✅ Fallback por si el server no filtra bien:
+  // 1. Filtro de TPV (con fallback para no perder tickets sin ID)
   if (onlyTpvId) {
     list = list.filter((t) => {
-      const raw = t._raw || {};
-      const idtpv = raw.idtpv ?? t.idtpv ?? raw.codtpv ?? "";
-      return String(idtpv) === onlyTpvId;
+      const idtpv = t.idtpv || t._raw?.idtpv;
+      return !idtpv || String(idtpv) === onlyTpvId;
     });
   }
 
-  list = filterLastNDays(list, days);
-  //borrar linea original si esta devuelta
-  //list = hideRefundedOriginals(list);
+  // 2. ORDENACIÓN PREVIA:
+  // Antes de vincular, necesitamos que estén ordenados por ID o Fecha
+  // para que 'linkTicketsRefundRelations' sepa quién es el más reciente.
   list = sortTicketsByFechaDesc(list);
 
-  return list.slice(0, limit);
+  // IMPORTANTE: No hagas el .slice(0, limit) aquí todavía,
+  // porque podrías dejar fuera un ticket original cuyo abono sí está en la lista.
+
+  return list;
 }
 
 function linkTicketsRefundRelations(list) {
@@ -7270,7 +7357,7 @@ function linkTicketsRefundRelations(list) {
       // 👇 total devuelto (en positivo)
       const refundedAbs = refunds.reduce(
         (acc, r) => acc + Math.abs(Number(r.total || 0)),
-        0
+        0,
       );
 
       // 👇 total original (positivo)
@@ -7368,11 +7455,6 @@ function buildRefundIndex(list) {
   return idx;
 }
 
-// Redondeo a 2 decimales seguro para importes
-function round2(n) {
-  return Math.round((Number(n) || 0) * 100) / 100;
-}
-
 async function fetchLineasFactura(idfactura) {
   // 1) Intento A: filtro tipo FS
   try {
@@ -7450,7 +7532,7 @@ async function buildRefundedQtyMapForOriginal(idfacturaOriginal) {
           ? normalizeRefundDesc(l.descripcion)
           : l.descripcion,
         l.pvpunitario,
-        l.codimpuesto
+        l.codimpuesto,
       );
 
       const q = Math.abs(Number(l.cantidad || 0));
@@ -7546,12 +7628,12 @@ function askEmailWithModal() {
     // ✅ Si faltan elementos, NO usamos prompt en Electron: mostramos mensaje claro
     if (!emailOverlay || !emailInput || !emailOkBtn || !emailCancelBtn) {
       console.error(
-        "Falta el HTML del modal de email (#emailOverlay, #emailInput, #emailOkBtn, #emailCancelBtn)."
+        "Falta el HTML del modal de email (#emailOverlay, #emailInput, #emailOkBtn, #emailCancelBtn).",
       );
       toast?.(
         "Falta el modal de email en el HTML. No puedo pedir el email.",
         "err",
-        "Activación"
+        "Activación",
       );
       resolve("");
       return;
@@ -7625,10 +7707,10 @@ function askEmailWithModal() {
 const cashMoveAmountInput = document.getElementById("cashMoveAmount");
 const cashMoveReasonInput = document.getElementById("cashMoveReason");
 const cashMoveAmountKeyboardBtn = document.getElementById(
-  "cashMoveAmountKeyboardBtn"
+  "cashMoveAmountKeyboardBtn",
 );
 const cashMoveReasonKeyboardBtn = document.getElementById(
-  "cashMoveReasonKeyboardBtn"
+  "cashMoveReasonKeyboardBtn",
 );
 
 // Teclado numérico para cantidad
@@ -7645,7 +7727,7 @@ if (cashMoveAmountKeyboardBtn && cashMoveAmountInput) {
         cashMoveAmountInput.value = Number(val).toFixed(2);
       },
       "Movimiento de caja",
-      "cash"
+      "cash",
     );
   };
 }
@@ -7752,20 +7834,20 @@ async function imprimirFacturaHistorica(facturaRow) {
 
   // 1) intentamos desglose real por recibos (si tenemos "codigo")
   const codigo = String(
-    raw.codigo || facturaRow?.codigo || ticketBase?.numero || ""
+    raw.codigo || facturaRow?.codigo || ticketBase?.numero || "",
   ).trim();
   let pagos = await fetchPagosFacturaByCodigo(codigo);
 
   // 2) fallback: 1 sola línea si no hay recibos
   if (!pagos.length) {
     const cod = String(
-      raw.codpago || facturaRow?.codpago || ticketBase.paymentMethod || "—"
+      raw.codpago || facturaRow?.codpago || ticketBase.paymentMethod || "—",
     ).trim();
     pagos = [
       {
         codpago: cod,
         importe: Number(
-          raw.total ?? facturaRow?.total ?? ticketBase.total ?? 0
+          raw.total ?? facturaRow?.total ?? ticketBase.total ?? 0,
         ),
       },
     ];
@@ -7819,7 +7901,7 @@ function renderRefundLines() {
 
   refundState.lineas.forEach((l) => {
     const max = Number(
-      l._remainingQty != null ? l._remainingQty : l.cantidad || 0
+      l._remainingQty != null ? l._remainingQty : l.cantidad || 0,
     );
     const id = Number(l.idlinea);
     const curr = Number(refundState.qtyByLineId[id] || 0);
@@ -7887,7 +7969,7 @@ function bindRefundLineClicks() {
     if (!line) return;
 
     const max = Number(
-      line.__pendingQty != null ? line.__pendingQty : line.cantidad || 0
+      line.__pendingQty != null ? line.__pendingQty : line.cantidad || 0,
     );
     let curr = Number(refundState.qtyByLineId[id] || 0);
 
@@ -7905,7 +7987,7 @@ function bindRefundLineClicks() {
 function refundSelectAll() {
   refundState.lineas.forEach((line) => {
     const max = Number(
-      line.__pendingQty != null ? line.__pendingQty : line.cantidad || 0
+      line.__pendingQty != null ? line.__pendingQty : line.cantidad || 0,
     );
     refundState.qtyByLineId[Number(line.idlinea)] = max;
   });
@@ -7941,7 +8023,7 @@ async function openRefundForFactura(facturaRow) {
       const key = lineKeyForMatch(
         normalizeRefundDesc(l.descripcion),
         l.pvpunitario,
-        l.codimpuesto
+        l.codimpuesto,
       );
 
       const sold = Number(l.cantidad || 0);
@@ -7993,7 +8075,7 @@ async function openRefundForFactura(facturaRow) {
         await createRefundInFacturaScripts(
           facturaRow,
           refundState.qtyByLineId,
-          refundState.lineas
+          refundState.lineas,
         );
 
         toast("Devolución creada ✅", "ok", "Devolución");
@@ -8014,7 +8096,7 @@ async function doLogoutFlow() {
 
   const ok = await confirmModal(
     "Cerrar sesión",
-    "¿Estás seguro de cerrar sesión?"
+    "¿Estás seguro de cerrar sesión?",
   );
   if (!ok) return;
 
@@ -8235,7 +8317,7 @@ function cashOpenNumPadForInput(input) {
       "Caja", // productName (puede ser "")
       "cash", // mode (qty para cantidades)
       null,
-      null
+      null,
     );
 
     return;
@@ -8261,7 +8343,7 @@ async function openDrawerNow() {
       toast(
         "No está implementado openCashDrawer (preload/main).",
         "err",
-        "Cajón"
+        "Cajón",
       );
       return false;
     }
@@ -8271,7 +8353,7 @@ async function openDrawerNow() {
       toast(
         "No se pudo abrir el cajón: " + (res?.error || "error"),
         "err",
-        "Cajón"
+        "Cajón",
       );
       return false;
     }
@@ -8487,7 +8569,7 @@ async function syncQueueNow() {
             } catch (e) {
               console.warn(
                 "No se pudo emitir/pagar factura offline:",
-                e?.message || e
+                e?.message || e,
               );
             }
 
@@ -8520,7 +8602,7 @@ async function syncQueueNow() {
             } catch (e) {
               console.warn(
                 "No se pudieron crear/limpiar recibos offline:",
-                e?.message || e
+                e?.message || e,
               );
             }
 
@@ -8571,7 +8653,7 @@ function saveOfflineTicketForTicketsModal(t) {
     // limita para no crecer infinito
     localStorage.setItem(
       OFFLINE_TICKETS_KEY,
-      JSON.stringify(curr.slice(0, 200))
+      JSON.stringify(curr.slice(0, 200)),
     );
   } catch (e) {
     console.warn("No se pudo guardar ticket offline:", e);
@@ -8582,7 +8664,7 @@ function removeOfflineTicketFromModalByLocalId(localId) {
   try {
     const curr = loadOfflineTicketsForTicketsModal();
     const next = curr.filter(
-      (x) => String(x._localId || "") !== String(localId || "")
+      (x) => String(x._localId || "") !== String(localId || ""),
     );
     localStorage.setItem(OFFLINE_TICKETS_KEY, JSON.stringify(next));
   } catch {}
@@ -8704,7 +8786,7 @@ async function renderQueuedTicketsIfAny() {
 
     // filtra solo creación de factura
     const pendingFacturas = pending.filter(
-      (it) => it.type === "CREATE_FACTURACLIENTE"
+      (it) => it.type === "CREATE_FACTURACLIENTE",
     );
 
     // Si no hay pendientes, no mostramos nada
@@ -8773,7 +8855,7 @@ async function saveCashMovement() {
   }
 
   const typeRadio = cashMoveOverlay.querySelector(
-    'input[name="cashMoveType"]:checked'
+    'input[name="cashMoveType"]:checked',
   );
   const type = typeRadio ? typeRadio.value : "in"; // "in" o "out"
 
@@ -8804,7 +8886,7 @@ async function saveCashMovement() {
     toast(
       "Movimiento guardado solo en el TPV (no se registró en FacturaScripts).",
       "warn",
-      "Caja"
+      "Caja",
     );
   }
 
@@ -8813,7 +8895,7 @@ async function saveCashMovement() {
   toast(
     `Movimiento de caja registrado: ${prefix}${amount.toFixed(2)} €`,
     "ok",
-    "Caja"
+    "Caja",
   );
 
   closeCashMoveDialog();
@@ -8911,7 +8993,7 @@ async function syncFsCajaTotalsRealtime() {
 
   const totalMovimientos = Number(cashSession.cashMovementsTotal || 0);
   const dineroInicial = Number(
-    cashSession.openingTotal || cashSession.initialCash || 0
+    cashSession.openingTotal || cashSession.initialCash || 0,
   );
   const ingresos = Number(cashSession.cashSalesTotal || 0);
 
@@ -8933,7 +9015,7 @@ async function syncFsCajaTotalsRealtime() {
   console.log(
     "Actualizando totales de caja en FacturaScripts:",
     fsBoxId,
-    payload
+    payload,
   );
 
   try {
@@ -8953,7 +9035,7 @@ function getAllTicketsForUI(serverTickets) {
 
   const push = (t) => {
     const key = String(
-      t.codigo || t.numero || t.idfactura || t._localId || ""
+      t.codigo || t.numero || t.idfactura || t._localId || "",
     ).trim();
     if (key && seen.has(key)) return;
     if (key) seen.add(key);
@@ -9070,4 +9152,60 @@ function setCashDialogMode(mode) {
   if (title)
     title.textContent = isOpenMode ? "Apertura de caja" : "Cierre de caja";
   if (okBtn) okBtn.textContent = isOpenMode ? "Abrir caja" : "Cerrar caja";
+}
+
+function showLinuxPrinterHelpBlock() {
+  const block = document.getElementById("linuxSetupBlock");
+  if (!block) return;
+
+  const isLinux = window.TPV_ENV?.platform === "linux";
+  const hasSetup = !!window.TPV_SETUP;
+
+  block.style.display = isLinux && hasSetup ? "block" : "none";
+}
+
+function applyLinuxPrinterUX() {
+  const isLinux = window.TPV_ENV?.platform === "linux";
+  const changeBtn = document.getElementById("optionsChangePrinterBtn");
+  if (!changeBtn) return;
+
+  changeBtn.style.display = isLinux ? "none" : "";
+}
+
+function wireLinuxSetupButtonsOnce() {
+  const setupBtn = document.getElementById("optionsSetupPosBtn");
+  const testBtn = document.getElementById("optionsTestPosBtn");
+  const msgEl = document.getElementById("optionsSetupMsg");
+
+  if (!setupBtn || !testBtn || !msgEl) return;
+  if (!window.TPV_SETUP) return;
+
+  if (setupBtn.dataset.wired === "1") return;
+  setupBtn.dataset.wired = "1";
+
+  setupBtn.onclick = async () => {
+    msgEl.textContent = "Abriendo configuración (puede pedir contraseña)...";
+    try {
+      await window.TPV_SETUP.setupPosPrinter();
+      msgEl.textContent = "✅ Configuración POS completada.";
+    } catch (e) {
+      msgEl.textContent = "❌ Error configurando POS: " + (e?.message || e);
+    }
+  };
+
+  testBtn.onclick = async () => {
+    msgEl.textContent = "Imprimiendo prueba...";
+    try {
+      await window.TPV_SETUP.testPosPrinter();
+      msgEl.textContent = "✅ Prueba enviada a la impresora.";
+    } catch (e) {
+      msgEl.textContent = "❌ Error en prueba: " + (e?.message || e);
+    }
+  };
+}
+
+function onOptionsOverlayOpened() {
+  applyLinuxPrinterUX();
+  showLinuxPrinterHelpBlock();
+  wireLinuxSetupButtonsOnce();
 }

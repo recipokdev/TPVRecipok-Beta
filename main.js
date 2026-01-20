@@ -128,7 +128,7 @@ function createWindow() {
     let guards = { cashOpen: false, parkedCount: 0 };
     try {
       guards = await mainWin.webContents.executeJavaScript(
-        "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()"
+        "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()",
       );
       guards = guards || { cashOpen: false, parkedCount: 0 };
     } catch (_) {}
@@ -151,7 +151,7 @@ function createWindow() {
     if (guards.cashOpen) {
       await showGuardInRenderer(
         "Terminal abierta",
-        "No puedes cerrar el programa hasta que cierres la caja."
+        "No puedes cerrar el programa hasta que cierres la caja.",
       );
       return;
     }
@@ -160,7 +160,7 @@ function createWindow() {
     if ((guards.parkedCount || 0) > 0) {
       await showGuardInRenderer(
         "Tickets aparcados",
-        "No puedes cerrar el programa hasta recuperar o eliminar los tickets aparcados."
+        "No puedes cerrar el programa hasta recuperar o eliminar los tickets aparcados.",
       );
       return;
     }
@@ -181,7 +181,7 @@ function createWindow() {
       });
       // Si falla cargar, igualmente mostramos la ventana para ver algo
       if (!mainWin.isVisible()) mainWin.show();
-    }
+    },
   );
 
   /*  Uncomment para abrir DevTools o consola siempre
@@ -196,9 +196,9 @@ function createWindow() {
     "console-message",
     (event, level, message, line, sourceId) => {
       console.log(
-        `renderer console [${level}] ${message} (${sourceId}:${line})`
+        `renderer console [${level}] ${message} (${sourceId}:${line})`,
       );
-    }
+    },
   );
 
   mainWin.loadFile(path.join(__dirname, "index.html")).catch((e) => {
@@ -360,7 +360,7 @@ function splashSet(text, percent) {
   if (!splashWin || splashWin.isDestroyed()) return;
   splashWin.webContents
     .executeJavaScript(
-      `window.postMessage(${JSON.stringify({ text, percent })}, "*");`
+      `window.postMessage(${JSON.stringify({ text, percent })}, "*");`,
     )
     .catch(() => {});
 }
@@ -431,7 +431,7 @@ async function runAutoUpdateGate() {
     "UPDATER start channel=",
     channel,
     "APPIMAGE=",
-    !!process.env.APPIMAGE
+    !!process.env.APPIMAGE,
   );
 
   return await new Promise((resolve) => {
@@ -514,7 +514,7 @@ ipcMain.handle("tpv:getGuards", async (event) => {
     // pide al renderer el estado
     const wc = event.sender;
     const guards = await wc.executeJavaScript(
-      "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()"
+      "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()",
     );
     return guards || { cashOpen: false, parkedCount: 0 };
   } catch (e) {
@@ -556,7 +556,7 @@ ipcMain.handle("ticket:print", async (_event, { html, deviceName }) => {
                 error: failureReason || "No se pudo imprimir",
               });
             else resolve({ ok: true });
-          }
+          },
         );
       });
       return result;
@@ -589,6 +589,42 @@ ipcMain.handle("ticket:print", async (_event, { html, deviceName }) => {
   return { ok: false, error: `Sistema no soportado: ${process.platform}` };
 });
 
+ipcMain.handle("ticket:printRaw", async (_event, { bytes, deviceName }) => {
+  if (!bytes || !Array.isArray(bytes) || bytes.length === 0) {
+    return { ok: false, error: "Faltan bytes" };
+  }
+  if (!deviceName) return { ok: false, error: "Falta deviceName" };
+
+  if (process.platform !== "linux") {
+    return { ok: false, error: "printRaw solo se usa en Linux" };
+  }
+
+  try {
+    const { spawn } = require("child_process");
+    const buf = Buffer.from(bytes);
+
+    const r = await new Promise((resolve) => {
+      const p = spawn("lp", ["-d", deviceName, "-o", "raw"], {
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+
+      let err = "";
+      p.stderr.on("data", (d) => (err += d.toString()));
+      p.on("close", (code) => {
+        if (code === 0) resolve({ ok: true });
+        else resolve({ ok: false, error: err.trim() || `lp exit ${code}` });
+      });
+
+      p.stdin.write(buf);
+      p.stdin.end();
+    });
+
+    return r;
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
 if (process.platform === "linux") {
   // Evita el error del chrome-sandbox en AppImage en algunos Ubuntus
   app.commandLine.appendSwitch("no-sandbox");
@@ -598,7 +634,7 @@ if (process.platform === "linux") {
 if (process.platform === "win32") {
   const ch = readChannel();
   app.setAppUserModelId(
-    ch === "beta" ? "com.recipok.tpvrecipok.beta" : "com.recipok.tpvrecipok"
+    ch === "beta" ? "com.recipok.tpvrecipok.beta" : "com.recipok.tpvrecipok",
   );
 }
 
@@ -647,7 +683,7 @@ function writeCashDrawerConfig(cfg) {
     fs.writeFileSync(
       cashDrawerConfigPath(),
       JSON.stringify(cfg, null, 2),
-      "utf8"
+      "utf8",
     );
   } catch (_) {}
 }
@@ -669,7 +705,7 @@ function registerShortcuts() {
     let guards = { cashOpen: false, parkedCount: 0 };
     try {
       guards = await mainWin.webContents.executeJavaScript(
-        "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()"
+        "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()",
       );
       guards = guards || { cashOpen: false, parkedCount: 0 };
     } catch (_) {}
@@ -758,7 +794,7 @@ ipcMain.handle("tpv:openCashDrawer", async (_event, { deviceName }) => {
             } else {
               resolve({ ok: true, pin, out: (stdout || "").trim() });
             }
-          }
+          },
         );
       });
 
@@ -844,21 +880,21 @@ ipcMain.handle("queue:list", async () => {
     .filter((x) => x.status === "pending" || x.status === "processing")
     .sort(
       (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
   const done = q
     .filter((x) => x.status === "done")
     .sort(
       (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
   const error = q
     .filter((x) => x.status === "error")
     .sort(
       (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
   return { pending, done, error, total: q.length };
@@ -929,7 +965,7 @@ ipcMain.handle("app:quit", async () => {
   let guards = { cashOpen: false, parkedCount: 0 };
   try {
     guards = await mainWin.webContents.executeJavaScript(
-      "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()"
+      "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()",
     );
     guards = guards || { cashOpen: false, parkedCount: 0 };
   } catch (_) {}
@@ -960,7 +996,7 @@ ipcMain.handle("tpv:attemptQuit", async () => {
   let guards = { cashOpen: false, parkedCount: 0 };
   try {
     guards = await mainWin.webContents.executeJavaScript(
-      "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()"
+      "window.__TPV_GUARDS__ && window.__TPV_GUARDS__()",
     );
     guards = guards || { cashOpen: false, parkedCount: 0 };
   } catch (_) {}
@@ -987,4 +1023,40 @@ ipcMain.handle("tpv:attemptQuit", async () => {
 
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
+});
+
+function runAsRoot(scriptPath) {
+  return new Promise((resolve, reject) => {
+    const p = spawn("pkexec", ["bash", scriptPath], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let out = "";
+    let err = "";
+    p.stdout.on("data", (d) => (out += d.toString()));
+    p.stderr.on("data", (d) => (err += d.toString()));
+
+    p.on("close", (code) => {
+      if (code === 0) resolve({ out });
+      else reject(new Error(err || `pkexec exit ${code}`));
+    });
+  });
+}
+
+ipcMain.handle("setup:posPrinter", async () => {
+  const setupPath = path.join(
+    process.resourcesPath,
+    "linux-tools",
+    "recipok-pos-printer-setup.sh",
+  );
+  return await runAsRoot(setupPath);
+});
+
+ipcMain.handle("setup:testPosPrinter", async () => {
+  const testPath = path.join(
+    process.resourcesPath,
+    "linux-tools",
+    "recipok-pos-printer-test.sh",
+  );
+  return await runAsRoot(testPath);
 });
