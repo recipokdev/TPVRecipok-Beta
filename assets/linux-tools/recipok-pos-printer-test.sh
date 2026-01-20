@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-QUEUE_NAME="${1:-RECIPOK_POS}"
+QUEUE="${1:-RECIPOK_POS}"
 
-# Init + message + feed + cut
-printf "\x1B\x40PRUEBA RECIPOK\n----------------\nOK ✅\n\n\n\x1D\x56\x42\x60" | lp -d "$QUEUE_NAME" -o raw
+# Init + texto + corte
+printf "\x1B\x40PRUEBA RECIPOK\n----------------\nOK\n\n\x1D\x56\x42\x60" \
+  | lp -d "$QUEUE" -o raw
