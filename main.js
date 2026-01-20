@@ -1058,41 +1058,98 @@ app.on("will-quit", () => {
   globalShortcut.unregisterAll();
 });
 
-function runAsRoot(scriptPath) {
-  return new Promise((resolve, reject) => {
-    const p = spawn("pkexec", ["bash", scriptPath], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+ipcMain.handle("setup:posPrinter", async (_e, { printerName }) => {
+  if (!printerName) return { ok: false, error: "Falta printerName" };
 
-    let out = "";
-    let err = "";
-    p.stdout.on("data", (d) => (out += d.toString()));
-    p.stderr.on("data", (d) => (err += d.toString()));
+  const bundled = app.isPackaged
+    ? path.join(
+        process.resourcesPath,
+        "linux-tools",
+        "recipok-pos-printer-setup.sh",
+      )
+    : path.join(
+        __dirname,
+        "assets",
+        "linux-tools",
+        "recipok-pos-printer-setup.sh",
+      );
 
-    p.on("close", (code) => {
-      if (code === 0) resolve({ out });
-      else reject(new Error(err || `pkexec exit ${code}`));
-    });
-  });
-}
-
-ipcMain.handle("setup:posPrinter", async () => {
-  const setupPath = path.join(
-    process.resourcesPath,
-    "linux-tools",
+  const localScript = ensureExecutableCopy(
+    bundled,
     "recipok-pos-printer-setup.sh",
   );
 
-  // Cola estable (la que usará el TPV en Linux)
-  return await runAsRoot(["bash", setupPath, "--name", "RECIPOK_POS"]);
+  // Pasamos nombre elegido como argumento
+  return await runAsRoot([
+    localScript,
+    "--target",
+    "RECIPOK_POS",
+    "--from",
+    printerName,
+  ]);
 });
 
-ipcMain.handle("setup:testPosPrinter", async () => {
-  const testPath = path.join(
-    process.resourcesPath,
-    "linux-tools",
+ipcMain.handle("setup:testPosPrinter", async (_evt, { queueName } = {}) => {
+  const bundled = app.isPackaged
+    ? path.join(
+        process.resourcesPath,
+        "linux-tools",
+        "recipok-pos-printer-test.sh",
+      )
+    : path.join(
+        __dirname,
+        "assets",
+        "linux-tools",
+        "recipok-pos-printer-test.sh",
+      );
+
+  const localScript = ensureExecutableCopy(
+    bundled,
     "recipok-pos-printer-test.sh",
   );
 
-  return await runAsRoot(["bash", testPath, "RECIPOK_POS"]);
+  return await runAsRoot([localScript, queueName || "RECIPOK_POS"]);
 });
+
+function cfgPath() {
+  return path.join(app.getPath("userData"), "tpv-config.json");
+}
+function readCfg() {
+  try {
+    return JSON.parse(fs.readFileSync(cfgPath(), "utf8"));
+  } catch {
+    return {};
+  }
+}
+function writeCfg(patch) {
+  const cur = readCfg();
+  const next = { ...cur, ...patch };
+  fs.writeFileSync(cfgPath(), JSON.stringify(next, null, 2), "utf8");
+  return next;
+}
+
+ipcMain.handle("cfg:get", (_e, key) => readCfg()[key]);
+ipcMain.handle("cfg:set", (_e, key, value) => writeCfg({ [key]: value }));
+
+function ensureExecutableCopy(srcPath, dstName) {
+  const dstDir = path.join(app.getPath("userData"), "linux-tools");
+  if (!fs.existsSync(dstDir)) fs.mkdirSync(dstDir, { recursive: true });
+
+  const dstPath = path.join(dstDir, dstName);
+
+  // Copia si no existe o si cambió tamaño/mtime (simple)
+  let needCopy = true;
+  if (fs.existsSync(dstPath)) {
+    try {
+      const a = fs.statSync(srcPath);
+      const b = fs.statSync(dstPath);
+      needCopy = a.size !== b.size;
+    } catch (_) {}
+  }
+  if (needCopy) fs.copyFileSync(srcPath, dstPath);
+
+  try {
+    fs.chmodSync(dstPath, 0o755);
+  } catch (_) {}
+  return dstPath;
+}

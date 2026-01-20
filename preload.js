@@ -35,10 +35,17 @@ contextBridge.exposeInMainWorld("TPV_SYS", {
 });
 
 contextBridge.exposeInMainWorld("TPV_SETUP", {
-  setupPosPrinter: () => ipcRenderer.invoke("setup:posPrinter"),
-  testPosPrinter: () => ipcRenderer.invoke("setup:testPosPrinter"),
+  setupPosPrinter: (printerName) =>
+    ipcRenderer.invoke("setup:posPrinter", { printerName }),
+  testPosPrinter: (queueName) =>
+    ipcRenderer.invoke("setup:testPosPrinter", { queueName }),
 });
 
 contextBridge.exposeInMainWorld("TPV_ENV", {
   platform: process.platform, // "linux" / "win32"
+});
+
+contextBridge.exposeInMainWorld("TPV_CFG", {
+  get: (key) => ipcRenderer.invoke("cfg:get", key),
+  set: (key, value) => ipcRenderer.invoke("cfg:set", key, value),
 });

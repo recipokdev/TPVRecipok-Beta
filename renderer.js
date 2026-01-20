@@ -4075,6 +4075,214 @@ const currentPrinterNameEl = document.getElementById("currentPrinterName");
 const autoPrintToggle = document.getElementById("autoPrintToggle");
 const groupLinesToggle = document.getElementById("groupLinesToggle");
 
+// ===== Impresora (Opciones) =====
+const PRINTER_REAL_KEY = "tpv_printerRealName"; // POS-80 (lo que ve el usuario)
+const PRINTER_QUEUE_KEY = "tpv_printerQueueName"; // RECIPOK_POS (Linux)
+
+function isLinux() {
+  return window.TPV_ENV?.platform === "linux";
+}
+
+function getSavedPrinterReal() {
+  return localStorage.getItem(PRINTER_REAL_KEY) || "";
+}
+function savePrinterReal(name) {
+  localStorage.setItem(PRINTER_REAL_KEY, name || "");
+}
+
+function getSavedPrinterQueue() {
+  return localStorage.getItem(PRINTER_QUEUE_KEY) || "";
+}
+function savePrinterQueue(name) {
+  localStorage.setItem(PRINTER_QUEUE_KEY, name || "");
+}
+
+function getSavedPrinterNameForUI() {
+  // en UI siempre mostramos la real
+  return getSavedPrinterReal();
+}
+
+async function ensurePrinterSelectedForPrint() {
+  if (!isLinux()) {
+    // Windows imprime a la real
+    let real = getSavedPrinterReal();
+    if (real) return real;
+
+    const chosen = await openPrinterPicker();
+    if (!chosen) return "";
+    savePrinterReal(chosen);
+    return chosen;
+  }
+
+  // Linux imprime siempre a la cola RAW
+  const QUEUE = "RECIPOK_POS";
+
+  let real = getSavedPrinterReal();
+  if (!real) {
+    const chosen = await openPrinterPicker();
+    if (!chosen) return "";
+    real = chosen;
+    savePrinterReal(real);
+  }
+
+  // Asegura la cola RAW apuntando a la impresora elegida
+  const r = await window.TPV_SETUP?.setupPosPrinter(real);
+  if (!r || !r.ok) {
+    throw new Error(r?.error || "No se pudo configurar la impresora en Linux.");
+  }
+
+  savePrinterQueue(QUEUE);
+  return QUEUE;
+}
+
+function refreshPrinterButtonsUI() {
+  const testBtn = document.getElementById("optionsTestPrinterBtn");
+  if (!testBtn) return;
+  testBtn.style.display = getSavedPrinterNameForUI() ? "inline-block" : "none";
+}
+
+function refreshOptionsUI() {
+  if (autoPrintToggle) autoPrintToggle.checked = isAutoPrintEnabled();
+  if (groupLinesToggle) groupLinesToggle.checked = isGroupLinesEnabled();
+
+  if (currentPrinterNameEl) {
+    const p = getSavedPrinterNameForUI();
+    currentPrinterNameEl.textContent = p ? p : "—";
+  }
+
+  refreshPrinterButtonsUI();
+}
+
+function openOptions() {
+  refreshOptionsUI();
+  optionsOverlay?.classList.remove("hidden");
+  syncGroupLinesFromFS();
+}
+
+function closeOptions() {
+  optionsOverlay?.classList.add("hidden");
+}
+
+optionsBtn?.addEventListener("click", openOptions);
+optionsCloseX?.addEventListener("click", closeOptions);
+optionsCloseBtn?.addEventListener("click", closeOptions);
+
+optionsOverlay?.addEventListener("click", (e) => {
+  if (e.target === optionsOverlay) closeOptions();
+});
+
+// ===== Cambiar impresora =====
+optionsChangePrinterBtn?.addEventListener("click", async () => {
+  try {
+    closeOptions?.();
+
+    const chosen = await openPrinterPicker();
+    if (!chosen) {
+      openOptions?.();
+      return;
+    }
+
+    savePrinterReal(chosen);
+
+    if (isLinux()) {
+      toast?.("Configurando impresora...", "info", "Impresión");
+
+      const r = await window.TPV_SETUP?.setupPosPrinter(chosen);
+      if (!r || !r.ok) {
+        toast?.(
+          "Error configurando impresora: " + (r?.error || "desconocido"),
+          "err",
+          "Impresión",
+        );
+        openOptions?.();
+        return;
+      }
+
+      savePrinterQueue("RECIPOK_POS");
+      toast?.("Impresora lista ✅", "ok", "Impresión");
+    }
+
+    openOptions?.();
+  } catch (e) {
+    console.warn(e);
+    toast?.("No se pudo cambiar impresora", "err", "Impresión");
+    openOptions?.();
+  }
+});
+
+// ===== Probar impresora =====
+document
+  .getElementById("optionsTestPrinterBtn")
+  ?.addEventListener("click", async () => {
+    try {
+      closeOptions?.();
+
+      if (isLinux()) {
+        // asegura configuración + obtiene cola
+        const queueName = await ensurePrinterSelectedForPrint();
+
+        toast?.("Enviando prueba...", "info", "Impresión");
+        const r = await window.TPV_SETUP?.testPosPrinter(queueName); // ver nota IPC abajo
+
+        if (!r || !r.ok) {
+          toast?.(
+            "Error en prueba: " + (r?.error || "desconocido"),
+            "err",
+            "Impresión",
+          );
+          openOptions?.();
+          return;
+        }
+
+        toast?.("Prueba enviada ✅", "ok", "Impresión");
+        openOptions?.();
+        return;
+      }
+
+      // Windows: HTML test
+      const printerName = await ensurePrinterSelectedForPrint();
+      if (!printerName) {
+        toast?.("Selecciona una impresora primero.", "warn", "Impresión");
+        openOptions?.();
+        return;
+      }
+
+      toast?.("Enviando prueba...", "info", "Impresión");
+
+      const html = `<!doctype html><html><head><meta charset="utf-8"/>
+    <style>body{font-family:Arial;font-size:12px;margin:0}.t{width:72mm;padding:8px}.c{text-align:center}.hr{border-top:1px dashed #000;margin:8px 0}</style>
+    </head><body><div class="t">
+      <div class="c"><b>PRUEBA RECIPOK</b></div>
+      <div class="c">${new Date().toLocaleString("es-ES")}</div>
+      <div class="hr"></div>
+      <div>Si ves esto, la impresora funciona ✅</div>
+      <div class="hr"></div>
+      <div class="c">Fin de prueba</div>
+    </div></body></html>`;
+
+      const rr = await window.TPV_PRINT.printTicket({
+        html,
+        deviceName: printerName,
+      });
+      if (!rr || !rr.ok) {
+        toast?.(
+          "No se pudo imprimir la prueba: " + (rr?.error || "desconocido"),
+          "err",
+          "Impresión",
+        );
+        openOptions?.();
+        return;
+      }
+
+      toast?.("Prueba enviada ✅", "ok", "Impresión");
+      openOptions?.();
+    } catch (e) {
+      console.warn(e);
+      toast?.("Error en prueba: " + (e?.message || e), "err", "Impresión");
+      openOptions?.();
+    }
+  });
+
 function isAutoPrintEnabled() {
   return localStorage.getItem(OPTIONS_AUTOPRINT_KEY) === "1";
 }
@@ -4128,38 +4336,7 @@ async function pushGroupLinesToFS(enabled) {
   }
 }
 
-function refreshOptionsUI() {
-  if (autoPrintToggle) autoPrintToggle.checked = isAutoPrintEnabled();
-  if (groupLinesToggle) groupLinesToggle.checked = isGroupLinesEnabled();
-
-  // Estas funciones ya deberían existir por tu printerOverlay:
-  // - getSavedPrinterName()
-  if (currentPrinterNameEl) {
-    const p =
-      typeof getSavedPrinterName === "function" ? getSavedPrinterName() : "";
-    currentPrinterNameEl.textContent = p ? p : "—";
-  }
-}
-
-function openOptions() {
-  refreshOptionsUI();
-  optionsOverlay?.classList.remove("hidden");
-  onOptionsOverlayOpened();
-  syncGroupLinesFromFS();
-}
-
-function closeOptions() {
-  optionsOverlay?.classList.add("hidden");
-}
-
-optionsBtn?.addEventListener("click", openOptions);
-optionsCloseX?.addEventListener("click", closeOptions);
-optionsCloseBtn?.addEventListener("click", closeOptions);
-
-// cerrar al click fuera del diálogo
-optionsOverlay?.addEventListener("click", (e) => {
-  if (e.target === optionsOverlay) closeOptions();
-});
+const optionsTestPrinterBtn = document.getElementById("optionsTestPrinterBtn");
 
 // Toggle auto-print
 autoPrintToggle?.addEventListener("change", () => {
@@ -4190,35 +4367,9 @@ groupLinesToggle?.addEventListener("change", async () => {
   await pushGroupLinesToFS(v);
 });
 
-// Cambiar impresora desde Opciones
-optionsChangePrinterBtn?.addEventListener("click", async () => {
-  try {
-    // 1) Cierra opciones para que no tape nada
-    closeOptions();
-
-    // 2) Abre selector de impresora (PROMESA)
-    const chosen = await openPrinterPicker();
-
-    // 3) Si eligió, guarda y refresca UI
-    if (chosen) {
-      savePrinterName(chosen);
-    }
-    refreshOptionsUI();
-
-    // 4) Vuelve a abrir opciones (si quieres que el usuario siga ahí)
-    openOptions();
-  } catch (e) {
-    console.warn(e);
-    toast?.("No se pudo cambiar impresora", "err", "Impresión");
-    // por si falla, reabre opciones igualmente
-    openOptions();
-  }
-});
-
 async function handleOpenDrawerClick(btn) {
   try {
-    const printerName =
-      typeof getSavedPrinterName === "function" ? getSavedPrinterName() : "";
+    const printerName = await ensurePrinterSelectedForPrint();
 
     if (!printerName) {
       toast?.("Primero selecciona una impresora.", "warn", "Cajón");
@@ -4528,16 +4679,6 @@ function buildTicketPrintData(apiResponse, ticketPayload, cartSnapshot) {
   };
 }
 
-const PRINTER_STORAGE_KEY = "tpv_printerName";
-
-function getSavedPrinterName() {
-  return localStorage.getItem(PRINTER_STORAGE_KEY) || "";
-}
-
-function savePrinterName(name) {
-  localStorage.setItem(PRINTER_STORAGE_KEY, name || "");
-}
-
 async function openPrinterPicker() {
   const overlay = document.getElementById("printerOverlay");
   const select = document.getElementById("printerSelect");
@@ -4570,7 +4711,7 @@ async function openPrinterPicker() {
   });
 
   // Preseleccionar la guardada o la predeterminada
-  const saved = getSavedPrinterName();
+  const saved = getSavedPrinterReal();
   if (saved && printers.some((p) => p.name === saved)) {
     select.value = saved;
   } else {
@@ -4604,26 +4745,6 @@ async function openPrinterPicker() {
       resolve(chosen);
     };
   });
-}
-
-async function ensurePrinterSelected() {
-  const isLinux = window.TPV_ENV?.platform === "linux";
-  let name = getSavedPrinterName();
-
-  if (isLinux) {
-    if (!name) {
-      savePrinterName("RECIPOK_POS");
-      name = "RECIPOK_POS";
-    }
-    return name;
-  }
-
-  if (name) return name;
-
-  const chosen = await openPrinterPicker();
-  if (!chosen) return "";
-  savePrinterName(chosen);
-  return chosen;
 }
 
 function normalizeRefundDesc(desc) {
@@ -4915,7 +5036,7 @@ async function printTicket(ticket) {
 
     const isLinux = window.TPV_ENV?.platform === "linux";
 
-    const printerName = await ensurePrinterSelected();
+    const printerName = await ensurePrinterSelectedForPrint();
     if (!printerName) {
       toast("Impresión cancelada (sin impresora).", "warn", "Impresión");
       return;
@@ -8129,7 +8250,6 @@ if (changePrinterBtn) {
     try {
       const chosen = await openPrinterPicker();
       if (!chosen) return;
-      savePrinterName(chosen);
       toast("Impresora guardada ✅", "ok", "Impresión");
     } catch (e) {
       toast("Error impresoras: " + (e?.message || e), "err", "Impresión");
@@ -8333,7 +8453,7 @@ document.addEventListener("DOMContentLoaded", () => {
 /*Abrir Cajon*/
 async function openDrawerNow() {
   try {
-    const printerName = await ensurePrinterSelected();
+    const printerName = await ensurePrinterSelectedForPrint();
     if (!printerName) {
       toast("No hay impresora seleccionada.", "warn", "Cajón");
       return false;

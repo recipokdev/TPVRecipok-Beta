@@ -1,60 +1,86 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Recipok POS printer one-time setup for Ubuntu (CUPS RAW queue for ESC/POS thermal printers)
-# - Enables FileDevice in CUPS (needed for file:/dev/usb/lpX backends)
-# - Creates/updates a RAW queue with a stable name
-# - Tries to auto-detect the USB printer device (/dev/usb/lp*)
+# Recipok POS printer setup (Ubuntu/Linux + CUPS)
+#
+# Goal:
+# - User selects a real CUPS printer by name (e.g., "POS-80", "XP-80", "EPSON_TM_T20")
+# - This script creates/updates a stable RAW queue: RECIPOK_POS
+# - RECIPOK_POS points to the same DeviceURI as the chosen printer
 #
 # Usage:
-#   sudo ./recipok-pos-printer-setup.sh                # auto-detect /dev/usb/lp*
-#   sudo ./recipok-pos-printer-setup.sh /dev/usb/lp1   # explicit device
-#   sudo ./recipok-pos-printer-setup.sh --name RECIPOK_POS --device /dev/usb/lp1
+#   sudo ./recipok-pos-printer-setup.sh --from "POS-80"
+#   sudo ./recipok-pos-printer-setup.sh --from "XP-80" --target "RECIPOK_POS"
 #
 # Notes:
-# - Run once per machine (or again if USB device changes)
-# - After this, print from Electron using: lp -d <QUEUE_NAME> -o raw
+# - Requires CUPS installed.
+# - Enables FileDevice in cups-files.conf (harmless even if not used).
+# - Works even if the chosen printer uses usb://, ipp://, socket://, etc.
 
-QUEUE_NAME="RECIPOK_POS"
-DEVICE=""
+TARGET_QUEUE="RECIPOK_POS"
+FROM_PRINTER=""
 
 log(){ echo "[recipok-pos] $*"; }
 die(){ echo "[recipok-pos] ERROR: $*" >&2; exit 1; }
 
 need_root(){
   if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
-    die "Run as root (use sudo)."
+    die "Run as root (pkexec/sudo)."
   fi
 }
 
 parse_args(){
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --name)
-        shift; [[ $# -gt 0 ]] || die "--name requires a value"; QUEUE_NAME="$1"; shift ;;
-      --device)
-        shift; [[ $# -gt 0 ]] || die "--device requires a value"; DEVICE="$1"; shift ;;
+      --target|--name)
+        shift; [[ $# -gt 0 ]] || die "$1 requires a value"
+        TARGET_QUEUE="$1"; shift ;;
+      --from)
+        shift; [[ $# -gt 0 ]] || die "--from requires a value"
+        FROM_PRINTER="$1"; shift ;;
       -h|--help)
-        sed -n '1,120p' "$0"; exit 0 ;;
+        cat <<EOF
+Usage:
+  sudo $0 --from "<CUPS_PRINTER_NAME>" [--target "RECIPOK_POS"]
+
+Examples:
+  sudo $0 --from "POS-80"
+  sudo $0 --from "XP-80" --target "RECIPOK_POS"
+EOF
+        exit 0 ;;
       *)
-        # allow passing device as first positional
-        if [[ -z "$DEVICE" ]]; then DEVICE="$1"; shift; else die "Unknown arg: $1"; fi
+        # If someone passes a positional printer name, accept it as --from.
+        if [[ -z "$FROM_PRINTER" ]]; then
+          FROM_PRINTER="$1"; shift
+        else
+          die "Unknown arg: $1"
+        fi
         ;;
     esac
   done
 }
 
-enable_filedevice(){
-  local f="/etc/cups/cups-files.conf"
-  [[ -f "$f" ]] || die "CUPS config not found at $f (is cups installed?)"
+ensure_cups(){
+  if ! command -v lpadmin >/dev/null 2>&1; then
+    log "Installing CUPS (cups)..."
+    apt-get update -y
+    apt-get install -y cups
+  fi
+}
 
-  # If FileDevice is already Yes, do nothing.
+enable_filedevice(){
+  # Not strictly required for USB URI printers, but safe and helps some setups.
+  local f="/etc/cups/cups-files.conf"
+  if [[ ! -f "$f" ]]; then
+    log "cups-files.conf not found at $f (some distros use a different path). Skipping FileDevice."
+    return 0
+  fi
+
   if grep -Eq '^[[:space:]]*FileDevice[[:space:]]+Yes' "$f"; then
     log "FileDevice already enabled."
     return 0
   fi
 
-  # Prefer to replace an existing FileDevice line (commented or not).
   if grep -Eq '^[[:space:]]*#?[[:space:]]*FileDevice[[:space:]]+' "$f"; then
     log "Enabling FileDevice in $f"
     sed -ri 's/^[[:space:]]*#?[[:space:]]*FileDevice[[:space:]]+.*/FileDevice Yes/' "$f"
@@ -67,59 +93,43 @@ enable_filedevice(){
 restart_cups(){
   if command -v systemctl >/dev/null 2>&1; then
     log "Restarting CUPS"
-    systemctl restart cups || systemctl restart cups.service
+    systemctl restart cups || systemctl restart cups.service || true
   else
     log "Restarting CUPS (service)"
-    service cups restart
+    service cups restart || true
   fi
 }
 
-ensure_cups(){
-  if ! command -v lpadmin >/dev/null 2>&1; then
-    log "Installing CUPS (cups)"
-    apt-get update -y
-    apt-get install -y cups
-  fi
-}
+resolve_device_uri(){
+  [[ -n "$FROM_PRINTER" ]] || die "Missing --from <printerName>"
 
-autodetect_device(){
-  if [[ -n "$DEVICE" ]]; then
-    [[ -e "$DEVICE" ]] || die "Device not found: $DEVICE"
-    return 0
+  if ! command -v lpstat >/dev/null 2>&1; then
+    die "lpstat not found (cups missing?)"
   fi
 
-  # Prefer /dev/usb/lp* devices if present.
-  if compgen -G "/dev/usb/lp*" > /dev/null; then
-    # Pick the highest-numbered device (often the most recent attach)
-    DEVICE=$(ls -1 /dev/usb/lp* 2>/dev/null | sort -V | tail -n 1)
-    log "Auto-detected device: $DEVICE"
-    return 0
-  fi
+  # Expected: "device for PRINTER: URI"
+  local line uri
+  line="$(lpstat -v "$FROM_PRINTER" 2>/dev/null || true)"
+  [[ -n "$line" ]] || die "Printer not found in CUPS: $FROM_PRINTER"
 
-  # Fallback: try CUPS device discovery
-  if command -v lpinfo >/dev/null 2>&1; then
-    local usb_uri
-    usb_uri=$(lpinfo -v 2>/dev/null | awk '/usb:/{print $2; exit}') || true
-    if [[ -n "${usb_uri:-}" ]]; then
-      log "Found USB URI via lpinfo: $usb_uri"
-      log "This script currently expects /dev/usb/lpX. Plug the printer via USB and ensure /dev/usb/lpX exists."
-    fi
-  fi
+  uri="$(echo "$line" | sed -n 's/^device for .*: //p' | head -n1)"
+  [[ -n "$uri" ]] || die "Could not resolve DeviceURI for: $FROM_PRINTER"
 
-  die "Could not auto-detect /dev/usb/lp*. Is the printer connected and powered?"
+  echo "$uri"
 }
 
 create_or_update_queue(){
-  log "Creating/updating RAW queue '$QUEUE_NAME' -> file:$DEVICE"
+  local uri="$1"
+  log "Creating/updating RAW queue '$TARGET_QUEUE' -> $uri"
 
-  # (Re)create idempotently: lpadmin updates if it exists.
-  lpadmin -p "$QUEUE_NAME" -E -v "file:$DEVICE" -m raw
+  # -m raw sets "raw" model/PPD.
+  # This is key for ESC/POS RAW printing.
+  lpadmin -p "$TARGET_QUEUE" -E -v "$uri" -m raw
 
-  cupsenable "$QUEUE_NAME" || true
-  cupsaccept "$QUEUE_NAME" || true
+  cupsenable "$TARGET_QUEUE" || true
+  cupsaccept "$TARGET_QUEUE" || true
 
-  log "Queue ready: $QUEUE_NAME"
-  log "Test print:  printf 'TEST\\n\\x1D\\x56\\x42\\x60' | lp -d $QUEUE_NAME -o raw"
+  log "Queue ready: $TARGET_QUEUE"
 }
 
 main(){
@@ -128,8 +138,10 @@ main(){
   ensure_cups
   enable_filedevice
   restart_cups
-  autodetect_device
-  create_or_update_queue
+
+  local uri
+  uri="$(resolve_device_uri)"
+  create_or_update_queue "$uri"
 }
 
 main "$@"
