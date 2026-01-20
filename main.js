@@ -95,6 +95,39 @@ async function renderTicketPdf(html) {
   return pdfPath;
 }
 
+function runAsRoot(cmdArray) {
+  return new Promise((resolve) => {
+    if (!Array.isArray(cmdArray) || cmdArray.length === 0) {
+      return resolve({ ok: false, error: "runAsRoot: cmdArray vacío" });
+    }
+
+    const [bin, ...args] = cmdArray;
+
+    // 1) Intento GUI: pkexec (pide contraseña)
+    const p = spawn("pkexec", [bin, ...args], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let out = "";
+    let err = "";
+
+    p.stdout.on("data", (d) => (out += d.toString()));
+    p.stderr.on("data", (d) => (err += d.toString()));
+
+    p.on("close", (code) => {
+      if (code === 0) return resolve({ ok: true, out: out.trim() });
+
+      // Si pkexec no está / el usuario canceló / error, devolvemos algo claro
+      const msg = (err || "").trim() || `pkexec exit ${code}`;
+      resolve({ ok: false, error: msg });
+    });
+
+    p.on("error", (e) => {
+      resolve({ ok: false, error: e?.message || String(e) });
+    });
+  });
+}
+
 function createWindow() {
   const isDev = !app.isPackaged;
 
@@ -1049,7 +1082,9 @@ ipcMain.handle("setup:posPrinter", async () => {
     "linux-tools",
     "recipok-pos-printer-setup.sh",
   );
-  return await runAsRoot(setupPath);
+
+  // Cola estable (la que usará el TPV en Linux)
+  return await runAsRoot(["bash", setupPath, "--name", "RECIPOK_POS"]);
 });
 
 ipcMain.handle("setup:testPosPrinter", async () => {
@@ -1058,5 +1093,6 @@ ipcMain.handle("setup:testPosPrinter", async () => {
     "linux-tools",
     "recipok-pos-printer-test.sh",
   );
-  return await runAsRoot(testPath);
+
+  return await runAsRoot(["bash", testPath, "RECIPOK_POS"]);
 });
