@@ -979,6 +979,39 @@
           <h2 style="margin: 0">Opciones</h2>
           <button type="button" id="optionsCloseX" class="small-btn">✕</button>
         </div>
+        <div
+          style="
+            margin-top: 16px;
+            border-top: 1px solid #eee;
+            padding-top: 12px;
+          "
+        >
+          <div data-admin-only>
+            <div style="font-weight: 700; margin-bottom: 6px">Pantalla</div>
+
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                flex-wrap: wrap;
+              "
+            >
+              <div style="font-size: 13px; opacity: 0.85">Modo TPV (kiosk)</div>
+
+              <label class="switch">
+                <input type="checkbox" id="kioskToggle" />
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div style="font-size: 12px; opacity: 0.7; margin-top: 6px">
+              Si desactivas, podrás minimizar y usar el equipo como un PC
+              normal.
+            </div>
+          </div>
+        </div>
 
         <div style="margin-top: 12px">
           <div style="font-weight: 700; margin-bottom: 6px">Impresora</div>

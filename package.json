@@ -1,6 +1,6 @@
 {
   "name": "tpvrecipok",
-  "version": "0.1.52",
+  "version": "0.1.53",
   "description": "",
   "main": "main.js",
   "scripts": {
@@ -22,9 +22,12 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "electron": "^39.2.5",
     "electron-builder": "^26.0.12",
-    "electron-rebuild": "^3.2.9"
+    "electron-rebuild": "^3.2.9",
+    "eslint": "^9.39.2",
+    "globals": "^17.0.0"
   },
   "build": {
     "icon": "assets/icon.ico",

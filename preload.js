@@ -15,10 +15,17 @@ contextBridge.exposeInMainWorld("TPV_PRINT", {
 contextBridge.exposeInMainWorld("TPV_APP", {
   getGuards: () => ipcRenderer.invoke("tpv:getGuards"),
   attemptQuit: () => ipcRenderer.invoke("tpv:attemptQuit"),
+  setKioskMode: (enabled) => ipcRenderer.invoke("ui:setKioskMode", !!enabled),
+  setCurrentUser: (payload) =>
+    ipcRenderer.invoke("auth:setCurrentUser", payload),
 });
 
 contextBridge.exposeInMainWorld("TPV_UI", {
   onGuard: (cb) => ipcRenderer.on("tpv:guard", (_e, payload) => cb(payload)),
+});
+
+contextBridge.exposeInMainWorld("TPV_UI_MODE", {
+  setKioskMode: (enabled) => ipcRenderer.invoke("ui:setKioskMode", enabled),
 });
 
 contextBridge.exposeInMainWorld("TPV_QUEUE", {
@@ -48,4 +55,8 @@ contextBridge.exposeInMainWorld("TPV_ENV", {
 contextBridge.exposeInMainWorld("TPV_CFG", {
   get: (key) => ipcRenderer.invoke("cfg:get", key),
   set: (key, value) => ipcRenderer.invoke("cfg:set", key, value),
+});
+
+contextBridge.exposeInMainWorld("TPV_AUTH", {
+  setCurrentUser: (user) => ipcRenderer.invoke("auth:setCurrentUser", { user }),
 });

@@ -710,6 +710,10 @@ function getLoginWarehouse() {
   return localStorage.getItem("tpv_login_codalmacen") || "";
 }
 
+function getLoggedUser() {
+  return (getLoginUser() || "admin").toLowerCase();
+}
+
 function setLoginSession({ token, user, codagente, codalmacen }) {
   localStorage.setItem("tpv_login_token", token || "");
   localStorage.setItem("tpv_login_user", user || "");
@@ -913,6 +917,9 @@ async function openLoginModal() {
         codagente: data.codagente,
         codalmacen: data.codalmacen,
       });
+
+      await window.electronAPI?.setCurrentUser?.(data.user);
+      // o el nombre que hayas expuesto en preload
 
       refreshLoggedUserUI();
 
@@ -4157,6 +4164,7 @@ function openOptions() {
   refreshOptionsUI();
   optionsOverlay?.classList.remove("hidden");
   syncGroupLinesFromFS();
+  applyOptionsVisibilityByRole();
 }
 
 function closeOptions() {
@@ -9244,13 +9252,6 @@ async function apiReadCurrentCaja() {
   return doc;
 }
 
-function parseMoney(n) {
-  // admite "3,80", "3.80", 3.8
-  if (typeof n === "string") n = n.replace(",", ".");
-  const x = Number(n);
-  return isNaN(x) ? 0 : x;
-}
-
 function setCashDialogMode(mode) {
   const summary = document.querySelector(".cash-summary-page"); // 6 KPIs
   const bigTotal = document.querySelector(".cash-total-big"); // Dinero Asignado
@@ -9329,3 +9330,17 @@ function onOptionsOverlayOpened() {
   showLinuxPrinterHelpBlock();
   wireLinuxSetupButtonsOnce();
 }
+
+const kioskToggle = document.getElementById("kioskToggle");
+
+async function initKioskToggle() {
+  const v = await window.TPV_CFG.get("kioskMode");
+  kioskToggle.checked = v !== false;
+
+  kioskToggle.onchange = async () => {
+    await window.TPV_CFG.set("kioskMode", kioskToggle.checked);
+    await window.TPV_UI_MODE.setKioskMode(kioskToggle.checked);
+  };
+}
+
+initKioskToggle();

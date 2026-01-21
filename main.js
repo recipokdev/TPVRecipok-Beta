@@ -1,5 +1,5 @@
 // main.js
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { execFile, spawn } = require("child_process");
 const path = require("path");
@@ -7,8 +7,10 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { globalShortcut } = require("electron");
 
+let isRecreatingWindow = false;
 let mainWin = null;
 let splashWin = null;
+let currentUser = "admin"; // por defecto si quieres
 
 function queueFilePath() {
   return path.join(app.getPath("userData"), "sync-queue.json");
@@ -27,28 +29,6 @@ function readQueue() {
 function writeQueue(items) {
   const p = queueFilePath();
   fs.writeFileSync(p, JSON.stringify(items, null, 2), "utf8");
-}
-
-function lpRaw(deviceName, buffer) {
-  return new Promise((resolve) => {
-    if (!deviceName) return resolve({ ok: false, error: "Falta deviceName" });
-
-    const p = spawn("lp", ["-d", deviceName, "-o", "raw"], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    let stderr = "";
-    p.stderr.on("data", (d) => (stderr += d.toString()));
-
-    p.on("close", (code) => {
-      if (code === 0) resolve({ ok: true });
-      else
-        resolve({ ok: false, error: (stderr || `lp exited ${code}`).trim() });
-    });
-
-    p.stdin.write(buffer);
-    p.stdin.end();
-  });
 }
 
 function lpPdf(deviceName, pdfPath) {
@@ -95,48 +75,71 @@ async function renderTicketPdf(html) {
   return pdfPath;
 }
 
-function runAsRoot(cmdArray) {
-  return new Promise((resolve) => {
-    if (!Array.isArray(cmdArray) || cmdArray.length === 0) {
-      return resolve({ ok: false, error: "runAsRoot: cmdArray vacío" });
-    }
+function isKioskMode() {
+  try {
+    const cfg = readCfg();
+    return cfg.kioskMode !== false; // default true
+  } catch {
+    return true;
+  }
+}
 
-    const [bin, ...args] = cmdArray;
+function applyKioskMode(win, enabled) {
+  if (!win || win.isDestroyed()) return;
 
-    // 1) Intento GUI: pkexec (pide contraseña)
-    const p = spawn("pkexec", [bin, ...args], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+  const isWin = process.platform === "win32";
 
-    let out = "";
-    let err = "";
+  if (enabled) {
+    win.setMenuBarVisibility(false);
+    win.setAutoHideMenuBar(true);
+    win.setAlwaysOnTop(true);
 
-    p.stdout.on("data", (d) => (out += d.toString()));
-    p.stderr.on("data", (d) => (err += d.toString()));
+    // ✅ Windows: NO usar setKiosk (da problemas al salir)
+    if (!isWin) win.setKiosk(true);
 
-    p.on("close", (code) => {
-      if (code === 0) return resolve({ ok: true, out: out.trim() });
+    // fullscreen “real”
+    win.setFullScreen(true);
 
-      // Si pkexec no está / el usuario canceló / error, devolvemos algo claro
-      const msg = (err || "").trim() || `pkexec exit ${code}`;
-      resolve({ ok: false, error: msg });
-    });
+    win.setResizable(false);
+    win.setMinimizable(false);
+    win.setMaximizable(false);
 
-    p.on("error", (e) => {
-      resolve({ ok: false, error: e?.message || String(e) });
-    });
-  });
+    // opcional (evita Alt+F4 fácil, pero no siempre conviene)
+    // win.setClosable(false);
+  } else {
+    // salir: primero quitar kiosk (solo linux/mac), luego fullscreen
+    if (!isWin) win.setKiosk(false);
+
+    win.setFullScreen(false);
+
+    win.setAlwaysOnTop(false);
+    win.setAutoHideMenuBar(false);
+    win.setMenuBarVisibility(true);
+
+    win.setResizable(true);
+    win.setMinimizable(true);
+    win.setMaximizable(true);
+
+    // win.setClosable(true);
+
+    // ✅ que no quede pequeña
+    try {
+      win.maximize();
+    } catch (_) {}
+    try {
+      win.focus();
+    } catch (_) {}
+  }
 }
 
 function createWindow() {
   const isDev = !app.isPackaged;
+  const kioskMode = isKioskMode();
 
   mainWin = new BrowserWindow({
-    fullscreen: true,
-    kiosk: true,
-    autoHideMenuBar: true,
-    alwaysOnTop: true,
-    frame: false,
+    // SIEMPRE frame true para poder tener botones cuando no kiosk
+    frame: true,
+
     show: false,
     icon: path.join(__dirname, "assets", "icon.png"),
     webPreferences: {
@@ -147,17 +150,18 @@ function createWindow() {
     },
   });
 
-  mainWin.removeMenu();
-
   // ✅ Bloquear cierre con la X si hay caja abierta o tickets aparcados
   let allowMainClose = false;
 
   mainWin.on("close", async (e) => {
+    // Si el cierre viene “permitido” (ej: app.quit controlado), dejamos pasar
     if (allowMainClose) return;
+
+    // Si estás en pleno cambio de modo o recreando (por si vuelves a hacerlo)
+    if (isRecreatingWindow) return;
 
     e.preventDefault();
 
-    // Leemos estado desde el renderer
     let guards = { cashOpen: false, parkedCount: 0 };
     try {
       guards = await mainWin.webContents.executeJavaScript(
@@ -166,91 +170,46 @@ function createWindow() {
       guards = guards || { cashOpen: false, parkedCount: 0 };
     } catch (_) {}
 
-    async function showGuardInRenderer(title, text) {
-      try {
-        // le mandamos evento al renderer para que muestre el modal bonito
-        mainWin.webContents.send("tpv:guard", { title, text });
-
-        // pequeña espera para que el usuario lo vea (y no “parezca” que no pasa nada)
-        // no bloquea el hilo; solo esperamos aquí antes de devolver
-        await new Promise((r) => setTimeout(r, 50));
-        return true;
-      } catch (_) {
-        return false;
-      }
-    }
-
-    // 1) Caja abierta -> NO cerrar
     if (guards.cashOpen) {
-      await showGuardInRenderer(
-        "Terminal abierta",
-        "No puedes cerrar el programa hasta que cierres la caja.",
-      );
+      mainWin.webContents.send("tpv:guard", {
+        title: "Terminal abierta",
+        text: "No puedes cerrar el programa hasta que cierres la caja.",
+      });
       return;
     }
 
-    // 2) Tickets aparcados -> NO cerrar
     if ((guards.parkedCount || 0) > 0) {
-      await showGuardInRenderer(
-        "Tickets aparcados",
-        "No puedes cerrar el programa hasta recuperar o eliminar los tickets aparcados.",
-      );
+      mainWin.webContents.send("tpv:guard", {
+        title: "Tickets aparcados",
+        text: "No puedes cerrar el programa hasta recuperar o eliminar los tickets aparcados.",
+      });
       return;
     }
 
-    // ✅ Si todo OK, permitir cierre
+    // ✅ permitir cierre real
     allowMainClose = true;
     mainWin.close();
   });
 
-  // Logs útiles si algo falla en producción
-  mainWin.webContents.on(
-    "did-fail-load",
-    (event, errorCode, errorDescription, validatedURL) => {
-      console.log("did-fail-load:", {
-        errorCode,
-        errorDescription,
-        validatedURL,
-      });
-      // Si falla cargar, igualmente mostramos la ventana para ver algo
-      if (!mainWin.isVisible()) mainWin.show();
-    },
-  );
+  // aplica el modo inicial
+  applyKioskMode(mainWin, kioskMode);
 
-  /*  Uncomment para abrir DevTools o consola siempre
-   */
-  if (!app.isPackaged) mainWin.webContents.openDevTools();
+  // carga UI
+  loadUI(mainWin);
 
-  mainWin.webContents.on("render-process-gone", (event, details) => {
-    console.log("render-process-gone:", details);
-  });
+  if (!app.isPackaged) {
+    mainWin.webContents.openDevTools({ mode: "right" }); // o "detach"
+  }
 
-  mainWin.webContents.on(
-    "console-message",
-    (event, level, message, line, sourceId) => {
-      console.log(
-        `renderer console [${level}] ${message} (${sourceId}:${line})`,
-      );
-    },
-  );
-
-  mainWin.loadFile(path.join(__dirname, "index.html")).catch((e) => {
-    console.log("loadFile error:", e);
-  });
-
-  // Mostrar cuando esté lista, pero con “plan B”
-  let shown = false;
   mainWin.once("ready-to-show", () => {
-    shown = true;
     mainWin.show();
-  });
-
-  // Plan B: si en 2s no hubo ready-to-show, mostramos igual
-  setTimeout(() => {
-    if (!shown && mainWin && !mainWin.isDestroyed() && !mainWin.isVisible()) {
-      mainWin.show();
+    // si NO es kiosk, maximiza al arrancar
+    if (!kioskMode) {
+      try {
+        mainWin.maximize();
+      } catch (_) {}
     }
-  }, 2000);
+  });
 }
 
 function createSplashWindow() {
@@ -421,8 +380,6 @@ function readChannel() {
     return "stable";
   }
 }
-
-const os = require("os");
 
 // (opcional) log a fichero para depurar en clientes
 function logUpdater(...args) {
@@ -681,7 +638,6 @@ app.whenReady().then(async () => {
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
       registerShortcuts(); // ✅ por si se recrea ventana
     }
   });
@@ -693,33 +649,11 @@ app.setLoginItemSettings({
 });
 
 app.on("window-all-closed", () => {
+  // ✅ Si estamos recreando la ventana (toggle kiosk), NO quitamos la app
+  if (isRecreatingWindow) return;
+
   if (process.platform !== "darwin") app.quit();
 });
-
-/*Abrir Cajon*/
-function cashDrawerConfigPath() {
-  return path.join(app.getPath("userData"), "cashdrawer.json");
-}
-
-function readCashDrawerConfig() {
-  try {
-    const p = cashDrawerConfigPath();
-    if (!fs.existsSync(p)) return null;
-    return JSON.parse(fs.readFileSync(p, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-function writeCashDrawerConfig(cfg) {
-  try {
-    fs.writeFileSync(
-      cashDrawerConfigPath(),
-      JSON.stringify(cfg, null, 2),
-      "utf8",
-    );
-  } catch (_) {}
-}
 
 function escposOpenDrawerBuffer(pin = 0, t1 = 25, t2 = 250) {
   const m = pin === 1 ? 1 : 0;
@@ -763,37 +697,6 @@ function registerShortcuts() {
   });
 
   if (!ok) console.log("No se pudo registrar Control+Alt+Q");
-}
-
-function listCashDrawerCandidatesLinux() {
-  const out = new Set();
-
-  // /dev/usb/lp0..lp15
-  for (let i = 0; i < 16; i++) {
-    const p = `/dev/usb/lp${i}`;
-    if (fs.existsSync(p)) out.add(p);
-  }
-
-  // /dev/lp0..lp15 (algunas distros)
-  for (let i = 0; i < 16; i++) {
-    const p = `/dev/lp${i}`;
-    if (fs.existsSync(p)) out.add(p);
-  }
-
-  return [...out];
-}
-
-async function tryWriteToDevice(devPath, buf) {
-  return await new Promise((resolve) => {
-    fs.open(devPath, "w", (err, fd) => {
-      if (err) return resolve({ ok: false, error: err.message });
-      fs.write(fd, buf, 0, buf.length, null, (err2) => {
-        fs.close(fd, () => {});
-        if (err2) return resolve({ ok: false, error: err2.message });
-        resolve({ ok: true });
-      });
-    });
-  });
 }
 
 ipcMain.handle("tpv:openCashDrawer", async (_event, { deviceName }) => {
@@ -993,6 +896,7 @@ ipcMain.handle("queue:error", async (_e, { id, error }) => {
 });
 
 ipcMain.handle("app:quit", async () => {
+  if (!isAdmin()) return { ok: false, error: "FORBIDDEN" };
   if (!mainWin || mainWin.isDestroyed()) return { ok: false };
 
   let guards = { cashOpen: false, parkedCount: 0 };
@@ -1058,57 +962,99 @@ app.on("will-quit", () => {
   globalShortcut.unregisterAll();
 });
 
-ipcMain.handle("setup:posPrinter", async (_e, { printerName }) => {
-  if (!printerName) return { ok: false, error: "Falta printerName" };
+ipcMain.handle("setup:testPosPrinter", async (_evt, { queueName } = {}) => {
+  const target = queueName || "RECIPOK_POS";
 
-  const bundled = app.isPackaged
-    ? path.join(
-        process.resourcesPath,
-        "linux-tools",
-        "recipok-pos-printer-setup.sh",
-      )
-    : path.join(
-        __dirname,
-        "assets",
-        "linux-tools",
-        "recipok-pos-printer-setup.sh",
+  // ✅ WINDOWS: test por webContents.print (sin bash, sin exe externo)
+  if (process.platform === "win32") {
+    let win = null;
+    try {
+      const html = `
+        <html><body style="font-family: Arial; font-size: 12px;">
+          <div><b>PRUEBA RECIPOK</b></div>
+          <div>------------------------</div>
+          <div>OK</div>
+          <div style="margin-top:10px;">${new Date().toLocaleString()}</div>
+        </body></html>
+      `;
+      win = await createHiddenPrintWindow(html);
+
+      const r = await new Promise((resolve) => {
+        win.webContents.print(
+          { silent: true, deviceName: target, printBackground: true },
+          (success, failureReason) => {
+            if (!success)
+              resolve({
+                ok: false,
+                error: failureReason || "No se pudo imprimir",
+              });
+            else resolve({ ok: true });
+          },
+        );
+      });
+
+      return r;
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    } finally {
+      if (win) {
+        try {
+          win.close();
+        } catch (_) {}
+      }
+    }
+  }
+
+  // ✅ LINUX: script (sin pkexec)
+  if (process.platform === "linux") {
+    const bundled = app.isPackaged
+      ? path.join(
+          process.resourcesPath,
+          "linux-tools",
+          "recipok-pos-printer-test.sh",
+        )
+      : path.join(
+          __dirname,
+          "assets",
+          "linux-tools",
+          "recipok-pos-printer-test.sh",
+        );
+
+    const localScript = ensureExecutableCopy(
+      bundled,
+      "recipok-pos-printer-test.sh",
+    );
+
+    return await new Promise((resolve) => {
+      const p = spawn("bash", [localScript, target], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      let out = "",
+        err = "";
+      p.stdout.on("data", (d) => (out += d.toString()));
+      p.stderr.on("data", (d) => (err += d.toString()));
+
+      p.on("close", (code) => {
+        if (code === 0) resolve({ ok: true, out: out.trim() });
+        else resolve({ ok: false, error: (err || `exit ${code}`).trim() });
+      });
+
+      p.on("error", (e) =>
+        resolve({ ok: false, error: e?.message || String(e) }),
       );
+    });
+  }
 
-  const localScript = ensureExecutableCopy(
-    bundled,
-    "recipok-pos-printer-setup.sh",
-  );
-
-  // Pasamos nombre elegido como argumento
-  return await runAsRoot([
-    localScript,
-    "--target",
-    "RECIPOK_POS",
-    "--from",
-    printerName,
-  ]);
+  return { ok: false, error: `Sistema no soportado: ${process.platform}` };
 });
 
-ipcMain.handle("setup:testPosPrinter", async (_evt, { queueName } = {}) => {
-  const bundled = app.isPackaged
-    ? path.join(
-        process.resourcesPath,
-        "linux-tools",
-        "recipok-pos-printer-test.sh",
-      )
-    : path.join(
-        __dirname,
-        "assets",
-        "linux-tools",
-        "recipok-pos-printer-test.sh",
-      );
+ipcMain.handle("ui:setKioskMode", async (_e, enabled) => {
+  if (!isAdmin()) return { ok: false, error: "FORBIDDEN" };
 
-  const localScript = ensureExecutableCopy(
-    bundled,
-    "recipok-pos-printer-test.sh",
-  );
-
-  return await runAsRoot([localScript, queueName || "RECIPOK_POS"]);
+  writeCfg({ kioskMode: !!enabled });
+  applyKioskMode(mainWin, !!enabled);
+  return { ok: true };
 });
 
 function cfgPath() {
@@ -1152,4 +1098,65 @@ function ensureExecutableCopy(srcPath, dstName) {
     fs.chmodSync(dstPath, 0o755);
   } catch (_) {}
   return dstPath;
+}
+
+function lpRawUser(deviceName, buffer) {
+  return new Promise((resolve) => {
+    if (!deviceName) return resolve({ ok: false, error: "Falta deviceName" });
+
+    const p = spawn("lp", ["-d", deviceName, "-o", "raw"], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    let stderr = "";
+    p.stderr.on("data", (d) => (stderr += d.toString()));
+
+    p.on("close", (code) => {
+      if (code === 0) resolve({ ok: true });
+      else resolve({ ok: false, error: (stderr || `lp exit ${code}`).trim() });
+    });
+
+    p.stdin.write(buffer);
+    p.stdin.end();
+  });
+}
+
+function getIndexHtmlPath() {
+  const candidates = [
+    path.join(__dirname, "index.html"),
+    path.join(__dirname, "src", "index.html"),
+    path.join(app.getAppPath(), "index.html"),
+    path.join(app.getAppPath(), "src", "index.html"),
+  ];
+
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+
+  // Log útil
+  console.log("No encontré index.html. Probé:", candidates);
+  return candidates[0]; // devuelve algo para que el error sea explícito
+}
+
+const { pathToFileURL } = require("url");
+
+function loadUI(win) {
+  const indexPath = getIndexHtmlPath(); // el que ya tienes
+  const url = pathToFileURL(indexPath).toString();
+
+  console.log("Loading UI:", indexPath);
+  console.log("Loading URL:", url);
+
+  return win.loadURL(url).catch((e) => {
+    console.log("loadURL error:", e);
+  });
+}
+
+ipcMain.handle("auth:setCurrentUser", async (_e, { user } = {}) => {
+  currentUser = String(user || "").toLowerCase();
+  return { ok: true };
+});
+
+function isAdmin() {
+  return String(currentUser || "").toLowerCase() === "admin";
 }
