@@ -4164,7 +4164,6 @@ function openOptions() {
   refreshOptionsUI();
   optionsOverlay?.classList.remove("hidden");
   syncGroupLinesFromFS();
-  applyOptionsVisibilityByRole();
 }
 
 function closeOptions() {
