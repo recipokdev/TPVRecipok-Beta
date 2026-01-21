@@ -1,144 +1,145 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Recipok POS - Setup CUPS RAW queue pointing to an existing CUPS printer by name
-# Usage:
-#   sudo ./recipok-pos-printer-setup.sh --from "POS-80" --target "RECIPOK_POS"
+# Recipok POS printer setup (Ubuntu/CUPS)
+# Crea/actualiza una cola RAW estable (TARGET) clonando el device-uri desde una impresora existente (FROM).
 #
-# What it does:
-# - Ensures CUPS exists
-# - Enables FileDevice (harmless even if not needed)
-# - Resolves device URI from: lpstat -v "<FROM_PRINTER>"
-# - Creates/updates RAW queue TARGET pointing to that URI
-# - Enables & accepts the TARGET queue
+# Uso:
+#   sudo ./recipok-pos-printer-setup.sh --target RECIPOK_POS --from "POS-80"
+#
+# Nota:
+# - Esto NO depende del idioma del sistema.
+# - Extrae el URI exacto desde: lpstat -v <FROM>
+# - Si el URI resultara ser file:/dev/usb/lpX, habilita FileDevice automáticamente.
 
-FROM_PRINTER=""
-TARGET_QUEUE="RECIPOK_POS"
+TARGET="RECIPOK_POS"
+FROM=""
+URI=""
 
 log(){ echo "[recipok-pos] $*"; }
 die(){ echo "[recipok-pos] ERROR: $*" >&2; exit 1; }
 
-need_root(){
+need_root() {
   if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
-    die "Run as root (use pkexec/sudo)."
+    die "Ejecuta como root (usa sudo/pkexec)."
   fi
 }
 
-parse_args(){
+parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --from)
-        shift; [[ $# -gt 0 ]] || die "--from requires a value"
-        FROM_PRINTER="$1"; shift
-        ;;
-      --target)
-        shift; [[ $# -gt 0 ]] || die "--target requires a value"
-        TARGET_QUEUE="$1"; shift
-        ;;
+      --target) shift; [[ $# -gt 0 ]] || die "--target requiere valor"; TARGET="$1"; shift ;;
+      --from)   shift; [[ $# -gt 0 ]] || die "--from requiere valor"; FROM="$1"; shift ;;
+      --uri)    shift; [[ $# -gt 0 ]] || die "--uri requiere valor"; URI="$1"; shift ;;
       -h|--help)
-        sed -n '1,120p' "$0"; exit 0
+        cat <<EOF
+Uso:
+  sudo $0 --target RECIPOK_POS --from "POS-80"
+  sudo $0 --target RECIPOK_POS --uri "usb://Printer/POS-80?serial=XXXX"
+
+EOF
+        exit 0
         ;;
-      *)
-        die "Unknown arg: $1"
-        ;;
+      *) die "Argumento desconocido: $1" ;;
     esac
   done
-
-  [[ -n "$FROM_PRINTER" ]] || die "Missing --from <printerName> (e.g. --from \"POS-80\")"
-  [[ -n "$TARGET_QUEUE" ]] || die "Missing --target <queueName>"
 }
 
-ensure_cups(){
+ensure_cups() {
   if ! command -v lpadmin >/dev/null 2>&1; then
-    log "Installing CUPS (cups)"
+    log "Instalando CUPS (cups)..."
     apt-get update -y
     apt-get install -y cups
   fi
 }
 
-enable_filedevice(){
-  # Some setups need FileDevice for file:/dev/usb/lpX. For usb:// it is not required, but harmless.
+enable_filedevice_if_needed() {
+  # Solo si vamos a usar backend file:
+  [[ "$URI" == file:* ]] || return 0
+
   local f="/etc/cups/cups-files.conf"
-  if [[ ! -f "$f" ]]; then
-    log "cups-files.conf not found at $f (skipping FileDevice tweak)"
-    return 0
-  fi
+  [[ -f "$f" ]] || die "No existe $f (¿cups instalado?)"
 
   if grep -Eq '^[[:space:]]*FileDevice[[:space:]]+Yes' "$f"; then
-    log "FileDevice already enabled."
+    log "FileDevice ya estaba habilitado."
     return 0
   fi
 
+  log "Habilitando FileDevice en $f (necesario para file:/dev/usb/lpX)"
   if grep -Eq '^[[:space:]]*#?[[:space:]]*FileDevice[[:space:]]+' "$f"; then
-    log "Enabling FileDevice in $f"
     sed -ri 's/^[[:space:]]*#?[[:space:]]*FileDevice[[:space:]]+.*/FileDevice Yes/' "$f"
   else
-    log "Adding FileDevice Yes to $f"
     printf '\n# Added by Recipok POS setup\nFileDevice Yes\n' >> "$f"
   fi
+
+  restart_cups
 }
 
-restart_cups(){
+restart_cups() {
   if command -v systemctl >/dev/null 2>&1; then
-    log "Restarting CUPS"
-    systemctl restart cups || systemctl restart cups.service || true
+    log "Reiniciando CUPS..."
+    systemctl restart cups || systemctl restart cups.service
   else
-    log "Restarting CUPS (service)"
-    service cups restart || true
+    log "Reiniciando CUPS (service)..."
+    service cups restart
   fi
 }
 
-resolve_from_printer_uri(){
-  # Works in ANY locale because we just take everything after the last ':'
-  # Example outputs:
-  #   device for POS-80: usb://...
-  #   dispositivo para POS-80: usb://...
-  local line uri
-  line="$(lpstat -v "$FROM_PRINTER" 2>/dev/null || true)"
-
-  if [[ -z "${line:-}" ]]; then
-    die "CUPS printer not found: '$FROM_PRINTER'. Check: lpstat -v"
+resolve_from_printer_uri() {
+  if [[ -n "${URI:-}" ]]; then
+    log "Usando URI explícito: $URI"
+    return 0
   fi
 
-  # Extract after the last colon + spaces
-  uri="$(echo "$line" | sed -n 's/^.*:[[:space:]]*//p' | head -n 1 | tr -d '\r' )"
+  [[ -n "${FROM:-}" ]] || die "Falta --from o --uri"
 
-  if [[ -z "${uri:-}" ]]; then
-    die "Could not resolve device URI for CUPS printer: '$FROM_PRINTER' (lpstat -v parse failed)"
+  # lpstat -v "<FROM>" devuelve una línea tipo:
+  #   device for POS-80: usb://Printer/POS-80?serial=...
+  # o en español:
+  #   dispositivo para POS-80: usb://Printer/POS-80?serial=...
+  #
+  # Importante: NO usar cut -d: porque rompe "usb://"
+  local line
+  if ! line="$(lpstat -v "$FROM" 2>/dev/null | head -n 1)"; then
+    die "No pude consultar lpstat para '$FROM'. ¿Existe esa impresora en CUPS?"
   fi
 
-  log "Resolved URI for '$FROM_PRINTER' -> $uri"
-  echo "$uri"
+  # Quita TODO hasta ": " (o ":<espacios>") y deja el resto intacto (incluye usb://...)
+  URI="$(echo "$line" | sed -E 's/^.*:[[:space:]]*//')"
+
+  if [[ -z "${URI:-}" || "$URI" == "$line" ]]; then
+    die "No pude extraer el device-uri desde: $line"
+  fi
+
+  log "Resolved URI para '$FROM' -> $URI"
 }
 
-create_or_update_queue(){
-  local uri="$1"
+create_or_update_queue() {
+  log "Creando/actualizando cola RAW '$TARGET' -> $URI"
 
-  log "Creating/updating RAW queue '$TARGET_QUEUE' -> $uri"
+  # Cola RAW (warning deprecado puede aparecer, pero sigue funcionando en muchas distros)
+  lpadmin -p "$TARGET" -E -v "$URI" -m raw
 
-  # raw model: ensures no filtering; good for ESC/POS via -o raw on lp
-  lpadmin -p "$TARGET_QUEUE" -E -v "$uri" -m raw
+  cupsenable "$TARGET" || true
+  cupsaccept "$TARGET" || true
 
-  cupsenable "$TARGET_QUEUE" || true
-  cupsaccept "$TARGET_QUEUE" || true
-
-  # Ensure source printer is enabled too (some systems mark it inactive)
-  cupsenable "$FROM_PRINTER" 2>/dev/null || true
-  cupsaccept "$FROM_PRINTER" 2>/dev/null || true
-
-  log "Queue ready: $TARGET_QUEUE"
+  log "OK. Cola lista: $TARGET"
+  log "Prueba:  printf 'TEST\\n\\x1D\\x56\\x42\\x60' | lp -d $TARGET -o raw"
 }
 
-main(){
+main() {
   need_root
   parse_args "$@"
   ensure_cups
-  enable_filedevice
-  restart_cups
-  local uri
-  uri="$(resolve_from_printer_uri)"
-  create_or_update_queue "$uri"
-  log "OK ✅"
+
+  # Flujo recomendado:
+  # ensure_cups
+  # resolve_from_printer_uri
+  # enable_filedevice_if_needed (solo si URI empieza por file:)
+  # create_or_update_queue
+  resolve_from_printer_uri
+  enable_filedevice_if_needed
+  create_or_update_queue
 }
 
 main "$@"
