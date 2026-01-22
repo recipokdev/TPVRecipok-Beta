@@ -113,8 +113,9 @@ function applyKioskMode(win, enabled) {
     win.setFullScreen(false);
 
     win.setAlwaysOnTop(false);
-    win.setAutoHideMenuBar(false);
-    win.setMenuBarVisibility(true);
+    // ✅ Mantener el menú oculto SIEMPRE
+    win.setAutoHideMenuBar(true);
+    win.setMenuBarVisibility(false);
 
     win.setResizable(true);
     win.setMinimizable(true);

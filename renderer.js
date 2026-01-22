@@ -4044,6 +4044,10 @@ async function updateFacturaCliente(idfactura, fields) {
   const body = new URLSearchParams();
   Object.entries(fields).forEach(([k, v]) => {
     if (v === undefined || v === null) return;
+
+    // ✅ no mandar strings vacíos (FK/validaciones)
+    if (typeof v === "string" && v.trim() === "") return;
+
     body.append(k, String(v));
   });
 
@@ -4057,10 +4061,30 @@ async function updateFacturaCliente(idfactura, fields) {
     body: body.toString(),
   });
 
-  const data = await res.json().catch(() => null);
-  if (!res.ok || (data && data.status === "error")) {
-    throw new Error(data?.message || `Error actualizando factura ${idfactura}`);
+  // ✅ leer texto aunque no sea JSON (para ver el motivo real del 400)
+  const txt = await res.text().catch(() => "");
+  let data = null;
+  try {
+    data = txt ? JSON.parse(txt) : null;
+  } catch {
+    data = null;
   }
+
+  if (!res.ok || (data && data.status === "error")) {
+    console.error("[updateFacturaCliente] FAIL", {
+      idfactura,
+      status: res.status,
+      responseText: txt,
+      fields,
+      url: url, // ✅ fijo (antes: url -> ReferenceError)
+    });
+
+    throw new Error(
+      (data && (data.message || data.error)) ||
+        `Error actualizando factura ${idfactura}: HTTP ${res.status} ${txt}`,
+    );
+  }
+
   return data;
 }
 
@@ -4512,7 +4536,7 @@ async function createRefundInFacturaScripts(
   const originalCodigo = facturaRow.codigo || facturaRow._raw?.codigo || "";
 
   if (newId && originalId) {
-    await updateFacturaCliente(newId, {
+    const upd = {
       codserie: "R",
       idfacturarect: originalId,
       codigorect: originalCodigo,
@@ -4521,8 +4545,12 @@ async function createRefundInFacturaScripts(
       codpago: facturaRow.codpago || "",
       idtpv: currentTerminal?.id || "",
       codalmacen: currentTerminal?.codalmacen || "",
-      codagente: currentAgent?.codagente || "",
-    });
+    };
+
+    // ✅ SOLO enviar codagente si existe (evita FK)
+    if (currentAgent?.codagente) upd.codagente = currentAgent.codagente;
+
+    await updateFacturaCliente(newId, upd);
   }
 
   return resp;
@@ -4820,6 +4848,28 @@ function getUnitGrossForPrint(l) {
   }
 
   return 0;
+}
+
+function isPriceModifiedForPrint(l) {
+  // Solo consideramos MOD cuando el carrito trae override
+  if (!l || l.grossPriceOverride == null) return false;
+
+  const ov = Number(l.grossPriceOverride);
+  if (!isFinite(ov)) return false;
+
+  const og = Number(
+    l.originalGrossPrice ?? l.grossPrice ?? l.price ?? l.__forceUnitGross,
+  );
+
+  // Si no hay original, igual marcamos MOD (pero idealmente siempre lo hay en carrito)
+  if (!isFinite(og)) return true;
+
+  return Math.abs(ov - og) > 0.0001;
+}
+
+function getOriginalUnitGrossForPrint(l) {
+  const og = Number(l?.originalGrossPrice ?? l?.grossPrice ?? l?.price);
+  return isFinite(og) ? og : 0;
 }
 
 function calcTotalsAndTaxMap(lineas, totalsOnlyPositive) {
@@ -5344,7 +5394,14 @@ async function onPayButtonClick() {
 
     // Número 2 y Serie desde el modal
     ticketPayload.numero2 = payResult.numero || "";
-    ticketPayload.serie = payResult.serie || "";
+
+    // ✅ Si el modal no devuelve serie, forzamos "S" (emitidas / serie principal)
+    const serieVenta = (payResult.serie || "S").toString().trim().toUpperCase();
+
+    // Según cómo esté implementado createTicketInFacturaScripts,
+    // a veces usa "serie" y a veces "codserie". Mandamos ambas para asegurar.
+    ticketPayload.serie = serieVenta;
+    ticketPayload.codserie = serieVenta;
 
     // 🔥 IMPORTANTE: escoger método principal
     // - si hay 1 pago, ese
@@ -5465,18 +5522,22 @@ async function onPayButtonClick() {
     const codigofactura = facturaResp?.codigo;
 
     if (idfactura) {
-      await updateFacturaCliente(idfactura, {
+      const upd = {
         idestado: 11,
         pagada: 1,
         codpago: ticketPayload.codpago || "",
         idtpv: currentTerminal?.id || "",
         codalmacen: currentTerminal?.codalmacen || "",
-        codagente: currentAgent?.codagente || "",
 
         // ✅ CLAVE para “Ingresos en efectivo” en tpvcajas
         tpv_efectivo: Number(tpv_efectivo.toFixed(2)),
         tpv_cambio: Number(tpv_cambio.toFixed(2)),
-      });
+      };
+
+      // ✅ SOLO enviar codagente si existe (evita FK)
+      if (currentAgent?.codagente) upd.codagente = currentAgent.codagente;
+
+      await updateFacturaCliente(idfactura, upd);
     }
 
     // ✅ Crear 1 recibo por cada método de pago usado (pago mixto)
@@ -6370,6 +6431,7 @@ if (parkedListBtn) {
 
 let ticketsCache = []; // última lista cargada
 let ticketsLoading = false; // evita dobles cargas
+let ticketsUiCache = []; // ✅ lista final (server + offline + vínculos)
 
 const ticketsOverlay = document.getElementById("ticketsOverlay");
 const ticketsCloseBtn = document.getElementById("ticketsCloseBtn");
@@ -6416,6 +6478,7 @@ async function loadAndRenderTickets() {
       // ✅ AQUÍ: usar merged, no "list"
       linkTicketsRefundRelations(merged);
 
+      ticketsUiCache = merged;
       renderTicketsList(merged);
       return;
     }
@@ -6427,6 +6490,7 @@ async function loadAndRenderTickets() {
     const merged = getAllTicketsForUI(ticketsCache);
 
     linkTicketsRefundRelations(merged);
+    ticketsUiCache = merged;
     renderTicketsList(merged);
   } catch (e) {
     console.error(e);
@@ -6438,6 +6502,7 @@ async function loadAndRenderTickets() {
 
       const merged = getAllTicketsForUI(ticketsCache);
       linkTicketsRefundRelations(merged);
+      ticketsUiCache = merged;
       renderTicketsList(merged);
     } else {
       ticketsList.innerHTML = `<div class="parked-ticket-empty">Error cargando tickets.</div>`;
@@ -6728,8 +6793,8 @@ if (ticketsSearch) {
   ticketsSearch.oninput = () => {
     clearTimeout(ticketsSearchTimer);
     ticketsSearchTimer = setTimeout(() => {
-      // ✅ usa el cache ya cargado
-      renderTicketsList(ticketsCache);
+      // ✅ usa la lista final (incluye OFFLINE + refunds linkeados)
+      renderTicketsList(ticketsUiCache.length ? ticketsUiCache : ticketsCache);
     }, 250);
   };
 }
@@ -7184,8 +7249,9 @@ async function fetchRecibosByFactura(idfactura) {
   const data = await fetchApiResourceWithParams("reciboclientes", {
     "filter[idfactura]": idfactura,
     limit: 200,
-    order: "desc",
+    "sort[idrecibo]": "DESC",
   });
+
   return Array.isArray(data) ? data : [];
 }
 
@@ -7312,7 +7378,7 @@ let PRODUCT_IMAGES_MAP = {};
 async function fetchAttachedImageFiles() {
   const data = await fetchApiResourceWithParams("attachedfiles", {
     limit: 5000,
-    order: "desc",
+    "sort[idfile]": "DESC",
   });
 
   const list = Array.isArray(data) ? data : [];
@@ -7329,7 +7395,7 @@ async function fetchProductFileRelations() {
   const data = await fetchApiResourceWithParams("attachedfilerelations", {
     "filter[model]": "Producto",
     limit: 5000,
-    order: "desc",
+    "sort[id]": "DESC", // o el campo real si lo devuelve como "id"
   });
 
   const list = Array.isArray(data) ? data : [];
@@ -7395,9 +7461,10 @@ async function fetchUltimosTickets(limit = 60, days = 30) {
     .slice(0, 10);
 
   const rows = await fetchApiResourceWithParams("facturaclientes", {
-    limit: 300, // Pedimos bastantes para asegurar que entren originales y sus abonos
-    order: "idfactura_desc", // Traemos lo más nuevo primero
-    "filter[fecha_gte]": since,
+    limit: 300,
+    "sort[idfactura]": "DESC", // ✅ tu API
+    // opcional: sin filtro por fecha si te quieres curar en salud
+    // "filter[fecha_gte]": since,
   });
 
   let list = (Array.isArray(rows) ? rows : []).map(mapFacturaRowToTicketRow);
@@ -7636,7 +7703,7 @@ async function fetchRectificativasDeFacturaOriginal(idfacturaOriginal) {
     "filter[codserie]": "R",
     "filter[idfacturarect]": idfacturaOriginal,
     limit: 200,
-    order: "desc",
+    "sort[idfactura]": "DESC",
   });
 
   return Array.isArray(rows) ? rows : [];
@@ -7926,7 +7993,7 @@ async function fetchPagosFacturaByCodigo(codigofactura) {
     const rows = await fetchApiResourceWithParams("reciboclientes", {
       "filter[codigofactura]": code,
       limit: 2000,
-      order: "asc",
+      "sort[idrecibo]": "ASC",
     });
 
     const list = Array.isArray(rows) ? rows : [];
