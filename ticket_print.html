@@ -1,24 +1,30 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
     <style>
+      * {
+        box-sizing: border-box;
+      }
       @page {
-        size: 72mm auto;
+        size: 80mm auto; /* mejor pedir 80mm y controlar ancho con #ticket */
         margin: 0;
       }
+
       html,
       body {
         margin: 0;
         padding: 0;
       }
-      /* 80mm: el “ancho útil” real suele ser 72–76mm */
+
       #ticket {
-        width: 72mm;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-          "Courier New", monospace;
+        width: 70mm; /* 👈 más seguro que 72mm en muchas térmicas */
+        padding: 0 2mm; /* 👈 “zona segura” izquierda/derecha */
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New",
+          monospace;
         font-size: 12px;
-        line-height: 1.2;
+        line-height: 1.25; /* un pelín más, evita solapes visuales */
         color: #000;
       }
       .center {
@@ -65,20 +71,25 @@
       .item-top {
         display: flex;
         gap: 6px;
+        align-items: flex-start;
       }
       .qty {
-        width: 6mm;
+        width: 10mm; /* 👈 antes 6mm (muy justo) */
         text-align: right;
+        white-space: nowrap; /* 👈 evita que parta raro */
+        overflow: hidden;
       }
       .desc {
         flex: 1;
         min-width: 0;
+        overflow: hidden;
         word-break: break-word;
       }
       .ltotal {
-        width: 18mm;
+        width: 20mm; /* 👈 un poco más ancho */
         text-align: right;
         white-space: nowrap;
+        overflow: hidden;
       }
 
       /* Encabezado tabla */
@@ -87,14 +98,14 @@
         gap: 6px;
       }
       .thead .qty {
-        width: 6mm;
+        width: 10mm;
         text-align: right;
       }
       .thead .desc {
         flex: 1;
       }
       .thead .ltotal {
-        width: 18mm;
+        width: 20mm;
         text-align: right;
       }
     </style>

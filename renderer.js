@@ -512,11 +512,18 @@ function updateCartItemQuantity(lineId, newQty) {
   const item = cart.find((c) => c._lineId === lineId);
   if (!item) return;
 
-  if (newQty <= 0) {
+  let q = Number(newQty);
+  if (!isFinite(q)) q = 0;
+
+  // mismo redondeo que el numpad (para consistencia)
+  q = Math.round(q * 1000) / 1000;
+
+  if (q <= 0) {
     cart = cart.filter((c) => c._lineId !== lineId);
   } else {
-    item.qty = newQty;
+    item.qty = q;
   }
+
   renderCart();
 }
 
@@ -584,8 +591,11 @@ function setUnitGrossOverride(item, newGross) {
   return true;
 }
 
-function restoreUnitGross(item) {
-  item.grossPriceOverride = null;
+function fmtQty(q) {
+  const n = Number(q);
+  if (!isFinite(n)) return "0";
+  // hasta 3 decimales, sin ceros sobrantes
+  return n.toLocaleString("es-ES", { maximumFractionDigits: 3 });
 }
 
 function renderCart() {
@@ -619,7 +629,7 @@ function renderCart() {
             ? `<div class="cart-line-secondary">${item.secondaryName}</div>`
             : ""
         }
-        <div class="cart-line-unit">${item.qty} x ${unitTxt}</div>
+        <div class="cart-line-unit">${fmtQty(item.qty)} x ${unitTxt}</div>
       </div>
 
       <div class="qty-controls">
@@ -628,7 +638,7 @@ function renderCart() {
         }">-</button>
         <button type="button" class="qty-display qty-display-btn qty-btn" data-action="edit" data-lineid="${
           item._lineId
-        }">${item.qty}</button>
+        }">${fmtQty(item.qty)}</button>
         <button class="qty-btn" data-action="plus" data-lineid="${
           item._lineId
         }">+</button>
@@ -1297,11 +1307,18 @@ function numPadConfirm() {
     return;
   }
 
-  // qty
-  value = Math.floor(Number(value));
+  // qty (✅ permitir decimales)
+  value = Number(value);
   if (!isFinite(value) || value <= 0) value = 0;
+
+  // límite y redondeo razonable para evitar basura (ajusta si quieres)
+  // Ej: 0.435 -> 0.435 (3 decimales)
+  value = Math.round(value * 1000) / 1000;
+  if (value > 0 && value < 0.001) value = 0.001;
+
   if (typeof numPadOnConfirm === "function") numPadOnConfirm(value);
   closeNumPad();
+  return;
 }
 
 function safeEvalQtyExpression(exprRaw) {
@@ -1551,9 +1568,12 @@ if (cartLinesContainer) {
         updateCartItemQuantity(lineId, item.qty - 1);
       } else if (action === "edit") {
         openNumPad(
-          item.qty,
+          String(item.qty ?? 1),
           (newQty) => updateCartItemQuantity(lineId, newQty),
           item.name,
+          "qty", // explícito
+          null,
+          lineId,
         );
       }
 
@@ -2070,36 +2090,42 @@ function renderMainAgentBar() {
     btn.textContent = agent.name;
 
     btn.onclick = async () => {
-      // Código del agente que se ha pulsado
       const clickedCode = agent.codagente;
 
-      // 1) Refrescamos TPVs y agentes desde la API
       await refreshTerminalsAndAgents();
 
-      // 2) Volvemos a obtener la lista de agentes del TPV actual
       const currentList = currentTerminal
         ? getAgentsForTerminalId(currentTerminal.id)
         : [];
 
-      // 3) Buscamos el agente pulsado en la lista actualizada
-      let newCurrentAgent =
+      currentAgent =
         currentList.find((a) => a.codagente === clickedCode) ||
         currentList[0] ||
         null;
 
-      currentAgent = newCurrentAgent;
-
-      // 4) Actualizamos el nombre en la cabecera
       if (agentNameEl) {
         agentNameEl.textContent = currentAgent ? currentAgent.name : "---";
       }
 
-      // 5) Volvemos a redibujar la barra con la información nueva
       renderMainAgentBar();
     };
 
     mainAgentBar.appendChild(btn);
   });
+
+  /* ===== BOTÓN ABRIR CAJÓN (FIJO A LA DERECHA) ===== */
+  const drawerBtn = document.createElement("button");
+  drawerBtn.type = "button";
+  drawerBtn.className = "agent-btn agent-drawer-btn";
+  drawerBtn.textContent = "📤";
+
+  drawerBtn.onclick = () => {
+    openDrawerNow().catch(() => {
+      toast("No se pudo abrir el cajón.", "err", "Cajón");
+    });
+  };
+
+  mainAgentBar.appendChild(drawerBtn);
 }
 
 function setCurrentAgent(agent) {
@@ -2147,6 +2173,34 @@ function showTerminalOverlay(mode = "session") {
   }
 
   // ----- MODO SELECCIÓN PARA ABRIR CAJA -----
+  function updateTerminalOverlayCopy({ showTerminal, showAgent }) {
+    const titleEl = document.getElementById("terminalOverlayTitle");
+    const descEl = document.getElementById("terminalOverlayDesc");
+    if (!titleEl || !descEl) return;
+
+    if (showTerminal && showAgent) {
+      titleEl.textContent = "Seleccionar Terminal y Agente";
+      descEl.textContent =
+        "Elige el TPV y el Agente/Cajero que va a usar este equipo.";
+      return;
+    }
+
+    if (showTerminal && !showAgent) {
+      titleEl.textContent = "Seleccionar Terminal";
+      descEl.textContent = "Elige el TPV que va a usar este equipo.";
+      return;
+    }
+
+    if (!showTerminal && showAgent) {
+      titleEl.textContent = "Seleccionar Agente";
+      descEl.textContent = "Elige el Agente/Cajero que va a usar este equipo.";
+      return;
+    }
+
+    // Si no hay nada que elegir (raro, pero por seguridad)
+    titleEl.textContent = "Configuración";
+    descEl.textContent = "No hay opciones que seleccionar.";
+  }
 
   // TPV
   if (terminalSelectWrapper) {
@@ -2200,6 +2254,19 @@ function showTerminalOverlay(mode = "session") {
     openCashOpenDialog("open");
     return;
   }
+
+  // ✅ Actualizar título/descripcion según lo que se muestra
+  const showTerminal = !!(
+    terminalSelectWrapper && terminalSelectWrapper.style.display !== "none"
+  );
+  const showAgent = multipleAgents; // si no hay múltiples agentes, el wrapper debería ir oculto
+
+  // Si aún no estás ocultando el wrapper de agentes cuando hay 0/1:
+  if (agentSelectWrapper) {
+    agentSelectWrapper.style.display = showAgent ? "" : "none";
+  }
+
+  updateTerminalOverlayCopy({ showTerminal, showAgent });
 
   terminalOverlay.classList.remove("hidden");
 }
@@ -2617,9 +2684,10 @@ if (cashOpenOverlay && !cashOpenOverlay.dataset.cashBound) {
       // Abre tu numpad existente
       openNumPad(
         String(current),
-        (newQty) => setCashQtyByDenom(denom, newQty),
+        (newQty) =>
+          setCashQtyByDenom(denom, Math.max(0, parseInt(newQty, 10) || 0)),
         `Cantidad de ${denom} €`,
-        "qty",
+        "cash", // o un modo nuevo "int"
       );
       return;
     }
@@ -3080,24 +3148,37 @@ if (cashOpenCancelBtn) {
 
 if (cashOpenOkBtn) {
   cashOpenOkBtn.onclick = async () => {
-    if (cashDialogMode === "open") {
-      await confirmCashOpening();
-      return;
-    }
+    if (cashOpenOkBtn) cashOpenOkBtn.disabled = true;
+    try {
+      if (cashDialogMode === "open") {
+        await confirmCashOpening();
+        return;
+      }
 
-    // ✅ BLOQUEO: no permitir cerrar caja con tickets aparcados
-    const parkedCount = Array.isArray(parkedTickets) ? parkedTickets.length : 0;
+      // ✅ BLOQUEO: no permitir cerrar caja con tickets aparcados
+      const parkedCount = Array.isArray(parkedTickets)
+        ? parkedTickets.length
+        : 0;
 
-    if (parkedCount > 0) {
-      await confirmModal(
-        "No puedes cerrar la caja",
-        `Tienes ${parkedCount} ticket(s) aparcado(s).\n\nRecupéralos (o elimínalos) antes de cerrar la caja.`,
+      if (parkedCount > 0) {
+        await confirmModal(
+          "No puedes cerrar la caja",
+          `Tienes ${parkedCount} ticket(s) aparcado(s).\n\nRecupéralos (o elimínalos) antes de cerrar la caja.`,
+        );
+        openParkedModal();
+        return;
+      }
+
+      // ✅ CONFIRMAR CIERRE
+      const ok = await confirmCashCloseModal(
+        "¿Seguro que quieres cerrar la caja?\n\nEsta acción registrará el cierre y no se puede deshacer.",
       );
-      openParkedModal(); // 👈 llevarle directo a los aparcados
-      return;
-    }
+      if (!ok) return;
 
-    await confirmCashClosing();
+      await confirmCashClosing();
+    } finally {
+      if (cashOpenOkBtn) cashOpenOkBtn.disabled = false;
+    }
   };
 }
 
@@ -4088,6 +4169,168 @@ async function updateFacturaCliente(idfactura, fields) {
   return data;
 }
 
+// ===== Modal confirmación cierre de caja =====
+const cashCloseConfirmOverlay = document.getElementById(
+  "cashCloseConfirmOverlay",
+);
+const cashCloseConfirmCloseX = document.getElementById(
+  "cashCloseConfirmCloseX",
+);
+const cashCloseConfirmText = document.getElementById("cashCloseConfirmText");
+const cashCloseConfirmCancelBtn = document.getElementById(
+  "cashCloseConfirmCancelBtn",
+);
+const cashCloseConfirmOkBtn = document.getElementById("cashCloseConfirmOkBtn");
+
+async function confirmCashCloseModal(message) {
+  if (!cashCloseConfirmOverlay) return true; // fallback: si falta el modal, no bloquea
+
+  if (cashCloseConfirmText) {
+    cashCloseConfirmText.textContent =
+      message || "¿Seguro que quieres cerrar la caja?";
+  }
+
+  cashCloseConfirmOverlay.classList.remove("hidden");
+
+  return await new Promise((resolve) => {
+    const cleanup = () => {
+      if (cashCloseConfirmCloseX) cashCloseConfirmCloseX.onclick = null;
+      if (cashCloseConfirmCancelBtn) cashCloseConfirmCancelBtn.onclick = null;
+      if (cashCloseConfirmOkBtn) cashCloseConfirmOkBtn.onclick = null;
+      cashCloseConfirmOverlay.onclick = null;
+    };
+
+    const close = (val) => {
+      cleanup();
+      cashCloseConfirmOverlay.classList.add("hidden");
+      resolve(val);
+    };
+
+    cashCloseConfirmCloseX &&
+      (cashCloseConfirmCloseX.onclick = () => close(false));
+    cashCloseConfirmCancelBtn &&
+      (cashCloseConfirmCancelBtn.onclick = () => close(false));
+    cashCloseConfirmOkBtn &&
+      (cashCloseConfirmOkBtn.onclick = () => close(true));
+
+    cashCloseConfirmOverlay.onclick = (e) => {
+      if (e.target === cashCloseConfirmOverlay) close(false);
+    };
+  });
+}
+
+// ===== Modal Post-cobro =====
+const postPayOverlay = document.getElementById("postPayOverlay");
+const postPayCloseX = document.getElementById("postPayCloseX");
+const postPayDocEl = document.getElementById("postPayDoc");
+const postPayTotalEl = document.getElementById("postPayTotal");
+const postPayChangeEl = document.getElementById("postPayChange");
+const postPayPrintBtn = document.getElementById("postPayPrintBtn");
+const postPayOpenDrawerBtn = document.getElementById("postPayOpenDrawerBtn");
+const postPayAutoCloseText = document.getElementById("postPayAutoCloseText");
+
+let __postPayTimer = null;
+let __postPayCountdownTimer = null;
+
+function euro2esUI(n) {
+  const v = Number(n) || 0;
+  return v.toFixed(2).replace(".", ",") + " €";
+}
+
+// Por ahora fijo a 20s. Luego lo hacemos configurable (0 = no cerrar).
+function getPostPayAutoCloseSeconds() {
+  return 20;
+}
+
+function closePostPayModal() {
+  if (__postPayTimer) clearTimeout(__postPayTimer);
+  if (__postPayCountdownTimer) clearInterval(__postPayCountdownTimer);
+  __postPayTimer = null;
+  __postPayCountdownTimer = null;
+
+  if (postPayOverlay) postPayOverlay.classList.add("hidden");
+  if (postPayAutoCloseText) postPayAutoCloseText.textContent = "";
+}
+
+function updatePostPayModal({ docCode, total, cambio, enablePrint }) {
+  if (postPayDocEl) postPayDocEl.textContent = docCode || "—";
+  if (postPayTotalEl) postPayTotalEl.textContent = euro2esUI(total);
+  if (postPayChangeEl) postPayChangeEl.textContent = euro2esUI(cambio);
+
+  if (enablePrint !== undefined) setPostPayPrintEnabled(!!enablePrint);
+}
+
+function setPostPayPrintEnabled(enabled) {
+  if (!postPayPrintBtn) return;
+
+  postPayPrintBtn.disabled = !enabled;
+
+  // gris visual (si tu .pay-btn no lo hace por defecto)
+  postPayPrintBtn.style.opacity = enabled ? "1" : "0.45";
+  postPayPrintBtn.style.pointerEvents = enabled ? "auto" : "none";
+}
+
+function isPostPayOpen() {
+  return postPayOverlay && !postPayOverlay.classList.contains("hidden");
+}
+
+function openPostPayModal({ docCode, total, cambio }) {
+  if (!postPayOverlay) return;
+
+  const alreadyOpen = isPostPayOpen();
+
+  // Siempre actualizamos contenido
+  updatePostPayModal({ docCode, total, cambio });
+
+  // Si ya estaba abierto, NO tocar timers ni countdown
+  if (alreadyOpen) return;
+
+  postPayOverlay.classList.remove("hidden");
+
+  // botones (solo hace falta setearlos una vez, pero ok si lo dejas aquí)
+  if (postPayPrintBtn) {
+    setPostPayPrintEnabled(!!(window.lastTicket || lastTicket));
+    postPayPrintBtn.onclick = async () => {
+      const t = window.lastTicket || lastTicket;
+      if (!t) return;
+      await printTicket(t);
+    };
+  }
+
+  if (postPayOpenDrawerBtn) {
+    postPayOpenDrawerBtn.onclick = () =>
+      handleOpenDrawerClick(postPayOpenDrawerBtn);
+  }
+
+  if (postPayCloseX) postPayCloseX.onclick = closePostPayModal;
+  postPayOverlay.onclick = (e) => {
+    if (e.target === postPayOverlay) closePostPayModal();
+  };
+
+  // autocierre SOLO al abrir por primera vez
+  const secs = Number(getPostPayAutoCloseSeconds() || 0);
+  if (!(secs > 0)) {
+    if (postPayAutoCloseText) postPayAutoCloseText.textContent = "";
+    return;
+  }
+
+  let left = secs;
+  if (postPayAutoCloseText)
+    postPayAutoCloseText.textContent = `Se cerrará en ${left}s`;
+
+  if (__postPayCountdownTimer) clearInterval(__postPayCountdownTimer);
+  if (__postPayTimer) clearTimeout(__postPayTimer);
+
+  __postPayCountdownTimer = setInterval(() => {
+    left -= 1;
+    if (left <= 0) return;
+    if (postPayAutoCloseText)
+      postPayAutoCloseText.textContent = `Se cerrará en ${left}s`;
+  }, 1000);
+
+  __postPayTimer = setTimeout(() => closePostPayModal(), secs * 1000);
+}
+
 // ===== Opciones (⚙️) =====
 const OPTIONS_AUTOPRINT_KEY = "tpv_autoPrint";
 const OPTIONS_GROUPLINES_KEY = "tpv_groupLines";
@@ -4105,6 +4348,18 @@ const optionsChangePrinterBtn = document.getElementById(
 const currentPrinterNameEl = document.getElementById("currentPrinterName");
 const autoPrintToggle = document.getElementById("autoPrintToggle");
 const groupLinesToggle = document.getElementById("groupLinesToggle");
+// ===== Abrir cajón siempre (toggle) =====
+const OPEN_DRAWER_ALWAYS_KEY = "tpv_openDrawerAlways";
+const openDrawerAlwaysToggle = document.getElementById(
+  "openDrawerAlwaysToggle",
+);
+
+function isOpenDrawerAlwaysEnabled() {
+  return localStorage.getItem(OPEN_DRAWER_ALWAYS_KEY) === "1";
+}
+function setOpenDrawerAlwaysEnabled(v) {
+  localStorage.setItem(OPEN_DRAWER_ALWAYS_KEY, v ? "1" : "0");
+}
 
 // ===== Impresora (Opciones) =====
 const PRINTER_REAL_KEY = "tpv_printerRealName"; // POS-80 (lo que ve el usuario)
@@ -4175,6 +4430,8 @@ function refreshPrinterButtonsUI() {
 function refreshOptionsUI() {
   if (autoPrintToggle) autoPrintToggle.checked = isAutoPrintEnabled();
   if (groupLinesToggle) groupLinesToggle.checked = isGroupLinesEnabled();
+  if (openDrawerAlwaysToggle)
+    openDrawerAlwaysToggle.checked = isOpenDrawerAlwaysEnabled();
 
   if (currentPrinterNameEl) {
     const p = getSavedPrinterNameForUI();
@@ -4383,6 +4640,20 @@ autoPrintToggle?.addEventListener("change", () => {
   }
 });
 
+// Toggle abrir cajón siempre
+openDrawerAlwaysToggle?.addEventListener("change", () => {
+  const v = !!openDrawerAlwaysToggle.checked;
+  setOpenDrawerAlwaysEnabled(v);
+
+  toast?.(
+    v
+      ? "El cajón se abrirá con cualquier método de pago ✅"
+      : "El cajón solo se abrirá con pagos al contado ✅",
+    "info",
+    "Opciones",
+  );
+});
+
 // Toggle agrupar líneas
 groupLinesToggle?.addEventListener("change", async () => {
   const v = !!groupLinesToggle.checked;
@@ -4407,7 +4678,7 @@ async function handleOpenDrawerClick(btn) {
       closeOptions?.();
       const chosen = await openPrinterPicker();
       if (chosen) {
-        savePrinterName(chosen);
+        savePrinterReal(chosen);
         refreshOptionsUI?.();
       }
       openOptions?.();
@@ -4958,8 +5229,15 @@ function buildFsLinesFromCart(cartArr) {
     // ✅ precio efectivo (override o normal)
     const unitGross = getUnitGross(item);
 
-    // ✅ neto a enviar a FS (porque FS espera pvpunitario neto)
-    const unitNet = grossToNet(unitGross, item.taxRate);
+    // ✅ neto a enviar a FS (FS espera pvpunitario neto)
+    // IMPORTANTÍSIMO: NO redondear a 2 decimales aquí. Enviar 6-8 decimales.
+    const tax = Number(item.taxRate || 0);
+    const divisor = 1 + tax / 100;
+    const unitNetRaw =
+      divisor > 0 ? (Number(unitGross) || 0) / divisor : Number(unitGross) || 0;
+
+    // 8 decimales para evitar descuadres (FS recalcula totales desde aquí)
+    const unitNet = Math.round((unitNetRaw + Number.EPSILON) * 1e8) / 1e8;
 
     const linea = {
       descripcion,
@@ -5214,19 +5492,6 @@ async function printTicket(ticket) {
       }
 
       toast("Ticket impreso ✅", "ok", "Impresión");
-
-      const isCash = Array.isArray(ticket.pagos)
-        ? ticket.pagos.some(isCashPago)
-        : true;
-      if (isCash && Number(totalToShow) > 0) {
-        const drawer = await window.TPV_PRINT.openCashDrawer(printerName);
-        if (!drawer || !drawer.ok)
-          toast(
-            "Ticket impreso, pero no se pudo abrir el cajón.",
-            "warn",
-            "Cajón",
-          );
-      }
       return;
     }
 
@@ -5301,21 +5566,6 @@ async function printTicket(ticket) {
     }
 
     toast("Ticket impreso ✅", "ok", "Impresión");
-
-    const isCash = Array.isArray(ticket.pagos)
-      ? ticket.pagos.some(isCashPago)
-      : true;
-    if (isCash && Number(totalToShow) > 0) {
-      const drawer = await window.TPV_PRINT.openCashDrawer(printerName);
-      if (!drawer || !drawer.ok) {
-        toast(
-          "Ticket impreso, pero no se pudo abrir el cajón: " +
-            (drawer?.error || "error desconocido"),
-          "warn",
-          "Cajón",
-        );
-      }
-    }
   } catch (e) {
     console.error("[printTicket] error:", e);
     toast("Error al imprimir: " + (e?.message || e), "err", "Impresión");
@@ -5460,6 +5710,18 @@ async function onPayButtonClick() {
           payResult,
         );
 
+        // ✅ Completar modal post-cobro offline (sí hay ticket imprimible offline)
+        try {
+          const docCode = lastTicket?.numero || "OFFLINE";
+          const totalDoc = Number(payResult?.total ?? totalCart ?? 0);
+          const cambio = Number(payResult?.cambio ?? 0);
+
+          openPostPayModal({ docCode, total: totalDoc, cambio });
+          setPostPayPrintEnabled(true);
+        } catch (e) {
+          console.warn("post-cobro offline completar falló:", e?.message || e);
+        }
+
         // ✅ si quieres que aparezca en el modal Tickets mientras está offline:
         saveOfflineTicketForTicketsModal({
           _localId: sendResult.localId,
@@ -5505,6 +5767,7 @@ async function onPayButtonClick() {
 
       setStatusText("Venta guardada en cola (offline)");
       toast("Sin internet: venta guardada en cola ✅", "ok", "Cobrar");
+
       return;
     }
 
@@ -5520,6 +5783,35 @@ async function onPayButtonClick() {
     const coddivisa = facturaResp?.coddivisa;
     const fecha = facturaResp?.fecha;
     const codigofactura = facturaResp?.codigo;
+
+    // ✅ TOTAL REAL según FacturaScripts (source of truth)
+    const facturaTotalFS =
+      Math.round(
+        (Number(facturaResp?.total ?? totalCart ?? 0) + Number.EPSILON) * 100,
+      ) / 100;
+
+    // ✅ Clonamos pagos y forzamos 2 decimales en importes
+    const pagosFinal = (payResult?.pagos || []).map((p) => ({
+      ...p,
+      importe:
+        Math.round((Number(p?.importe || 0) + Number.EPSILON) * 100) / 100,
+    }));
+
+    // ✅ Ajuste de céntimos: recibos deben sumar EXACTO totalFS (si no, sale "No pagado")
+    const sumPagosFinal = pagosFinal.reduce(
+      (s, p) => s + (Number(p.importe) || 0),
+      0,
+    );
+    const diff =
+      Math.round((facturaTotalFS - sumPagosFinal + Number.EPSILON) * 100) / 100;
+
+    if (pagosFinal.length && Math.abs(diff) >= 0.01) {
+      const last = pagosFinal[pagosFinal.length - 1];
+      const newImp =
+        Math.round((Number(last.importe || 0) + diff + Number.EPSILON) * 100) /
+        100;
+      pagosFinal[pagosFinal.length - 1] = { ...last, importe: newImp };
+    }
 
     if (idfactura) {
       const upd = {
@@ -5543,7 +5835,7 @@ async function onPayButtonClick() {
     // ✅ Crear 1 recibo por cada método de pago usado (pago mixto)
     if (idfactura && codcliente) {
       const today = new Date().toISOString().slice(0, 10);
-      const pagosRecibos = payResult.pagos || [];
+      const pagosRecibos = pagosFinal;
       for (const p of pagosRecibos) {
         const importe = Number(Number(p.importe || 0).toFixed(2));
         if (!(importe > 0)) continue;
@@ -5592,15 +5884,40 @@ async function onPayButtonClick() {
     }
 
     await apiUpdateCajaAfterSale({
-      totalVenta: totalCart,
-      pagos: payResult?.pagos || [],
+      totalVenta: facturaTotalFS, // mejor usar el total real FS
+      pagos: pagosFinal,
     });
 
     // 4) Guardamos ticket para imprimir
     lastTicket = buildTicketPrintData(apiResponse, ticketPayload, cartSnapshot);
 
+    // ✅ Completar modal post-cobro (ya hay ticket) + habilitar imprimir
+    try {
+      const docCode =
+        lastTicket?.numero ||
+        facturaResp?.codigo ||
+        facturaResp?.idfactura ||
+        "—";
+
+      const totalDoc = Number(
+        facturaResp?.total ?? lastTicket?.total ?? totalCart ?? 0,
+      );
+      const cambio = Number(payResult?.cambio ?? 0);
+
+      // Si el modal ya estaba abierto, refrescamos los datos
+      updatePostPayModal({
+        docCode,
+        total: totalDoc,
+        cambio,
+        enablePrint: true,
+      });
+      setPostPayPrintEnabled(true);
+    } catch (e) {
+      console.warn("No pude completar post-cobro:", e?.message || e);
+    }
+
     // ✅ Guardamos desglose de pagos para imprimirlo
-    lastTicket.pagos = pagos;
+    lastTicket.pagos = pagosFinal;
     lastTicket.cambio = payResult.cambio || 0;
 
     const printBtn = document.getElementById("printTicketBtn");
@@ -5611,7 +5928,7 @@ async function onPayButtonClick() {
     const totalVenta = lastTicket.total || totalCart || 0;
 
     let efectivo = 0;
-    pagos.forEach((p) => {
+    pagosFinal.forEach((p) => {
       const code = String(p.codpago || "").toUpperCase();
       const desc = String(p.descripcion || "").toLowerCase();
       // criterio: CONT o “al contado” lo consideramos efectivo
@@ -5624,10 +5941,12 @@ async function onPayButtonClick() {
       }
     });
 
+    /*
     const hasCash = efectivo > 0;
     if (hasCash) {
       await openDrawerNow();
     }
+    */
 
     // 6) Vaciar carrito
     cart = [];
@@ -5683,6 +6002,8 @@ function moneyToNumber(v) {
   return isNaN(n) ? 0 : n;
 }
 
+// ===== Setting: Abrir cajón siempre =====
+
 function isCashPago(p) {
   const code = String(p?.codpago || "")
     .trim()
@@ -5704,19 +6025,6 @@ function isCashPago(p) {
     desc.includes("efectivo") ||
     desc.includes("cash")
   );
-}
-
-function moneyToNumber(v) {
-  if (typeof v === "number") return isNaN(v) ? 0 : v;
-  if (v == null) return 0;
-  // admite "2,50", "2.50", " 2,50 € "
-  const s = String(v)
-    .trim()
-    .replace("€", "")
-    .replace(/\s/g, "")
-    .replace(",", ".");
-  const n = Number(s);
-  return isNaN(n) ? 0 : n;
 }
 
 // payResult = lo que te devuelve crearFacturaCliente (o el endpoint que uses)
@@ -6185,6 +6493,23 @@ function payKeyClearAll() {
   setPayError("");
 }
 
+function payResultHasCash(payResult) {
+  const pagos = Array.isArray(payResult?.pagos) ? payResult.pagos : [];
+  return pagos.some(
+    (p) =>
+      isCashPago({ codpago: p.codpago, descripcion: p.descripcion }) &&
+      Number(p?.entregado ?? p?.importe ?? 0) > 0,
+  );
+}
+
+function shouldOpenDrawerForPayResult(payResult) {
+  // si el toggle está ON -> siempre
+  if (isOpenDrawerAlwaysEnabled()) return true;
+
+  // si está OFF -> solo efectivo
+  return payResultHasCash(payResult);
+}
+
 async function openPayModal(total) {
   if (!payOverlay) throw new Error("Falta #payOverlay en index.html");
 
@@ -6218,6 +6543,7 @@ async function openPayModal(total) {
   if (paySerie) paySerie.value = "";
 
   payOverlay.classList.remove("hidden");
+  if (paySaveBtn) paySaveBtn.disabled = false;
 
   // eventos keypad
   const keypad = payOverlay.querySelector(".pay-keypad");
@@ -6245,6 +6571,7 @@ async function openPayModal(total) {
     };
 
     const cancel = () => {
+      if (paySaveBtn) paySaveBtn.disabled = false;
       cleanupBtns();
       closeModal();
       resolve(null);
@@ -6354,6 +6681,35 @@ async function openPayModal(total) {
           numero: payNumber ? String(payNumber.value || "") : "",
           serie: paySerie ? String(paySerie.value || "") : "",
         };
+
+        // ✅ Abrir cajón INMEDIATO al confirmar pago
+        try {
+          if (shouldOpenDrawerForPayResult({ pagos })) {
+            // evitar doble click rápido
+            paySaveBtn.disabled = true;
+
+            // NO bloquees el flujo si falla
+            openDrawerNow().catch(() => {});
+          }
+        } catch (e) {
+          // no debe impedir el cobro
+        }
+
+        // ✅ Abrir modal post-cobro INMEDIATO (aún sin ticket)
+        try {
+          // Guardamos para que el flujo online lo "complete" luego
+          window.__POSTPAY_PENDING__ = {
+            docCode: "Procesando…",
+            total: result.total,
+            cambio: result.cambio,
+          };
+
+          // Abre modal ahora (imprimir queda desactivado hasta que exista lastTicket)
+          openPostPayModal(window.__POSTPAY_PENDING__);
+          setPostPayPrintEnabled(false);
+        } catch (e) {
+          console.warn("No pude abrir modal post-cobro:", e?.message || e);
+        }
 
         cleanupBtns();
         closeModal();

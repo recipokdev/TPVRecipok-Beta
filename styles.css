@@ -38,7 +38,7 @@ body {
   gap: 8px;
   align-items: center;
   padding: 4px 6px;
-  border-radius: 999px;
+  border-radius: 20px;
   background: linear-gradient(90deg, #e5f0ff, #f5f8ff);
 }
 
@@ -65,6 +65,25 @@ body {
 
 .agent-main-bar .agent-btn:hover {
   transform: translateY(-1px);
+}
+
+/* Botón Abrir Cajón: empujado a la derecha */
+.agent-main-bar .agent-drawer-btn {
+  margin-left: auto; /* CLAVE: lo manda al extremo derecho */
+  background: #ffffff;
+  color: #fff;
+  font-size: 22px;
+  border-radius: 5px;
+  padding: 10px 20px;
+  text-box: auto;
+}
+
+/* Hover coherente */
+.agent-main-bar .agent-drawer-btn:hover {
+  transform: translateY(-1px);
+  background: #198cff;
+  color: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 
 /* --- 1.2 Buscador --- */
@@ -2361,4 +2380,66 @@ body.modal-locked .cart-card {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* =============================================================
+   12) Modal Post-cobro
+   ============================================================= */
+
+.postpay-dialog .postpay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.postpay-summary {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  border-top: 1px solid #eee;
+  border-bottom: 1px solid #eee;
+  padding: 14px 0;
+  margin: 10px 0 14px;
+}
+
+.postpay-kpi {
+  flex: 1;
+  text-align: center;
+  min-width: 0;
+}
+
+.postpay-kpi-val {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.postpay-kpi-lbl {
+  font-size: 12px;
+  opacity: 0.65;
+  margin-top: 4px;
+}
+
+.postpay-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.postpay-actions .pay-btn {
+  flex: 1;
+  min-width: 200px;
+}
+
+.postpay-autoclose {
+  margin-top: 10px;
+  font-size: 12px;
+  opacity: 0.65;
+  text-align: right;
 }

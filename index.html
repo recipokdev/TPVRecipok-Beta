@@ -264,8 +264,8 @@
     <!-- Overlay selección de terminal / agente -->
     <div id="terminalOverlay" class="simple-overlay hidden">
       <div class="simple-dialog">
-        <h2>Seleccionar terminal</h2>
-        <p style="margin-bottom: 8px; font-size: 14px">
+        <h2 id="terminalOverlayTitle">Seleccionar Terminal y Agente</h2>
+        <p id="terminalOverlayDesc" style="margin-bottom: 8px; font-size: 14px">
           Elige el TPV y el agente que va a usar este equipo.
         </p>
 
@@ -966,6 +966,74 @@
       </div>
     </div>
 
+    <!-- Overlay: Post-cobro -->
+    <div id="postPayOverlay" class="simple-overlay hidden">
+      <div
+        class="simple-dialog postpay-dialog"
+        style="width: 520px; max-width: 94vw"
+      >
+        <div class="postpay-head">
+          <h2 style="margin: 0">Opciones del ticket</h2>
+          <button type="button" id="postPayCloseX" class="small-btn">✕</button>
+        </div>
+
+        <div class="postpay-summary">
+          <div class="postpay-kpi">
+            <div class="postpay-kpi-val" id="postPayDoc">—</div>
+            <div class="postpay-kpi-lbl">Documento</div>
+          </div>
+          <div class="postpay-kpi">
+            <div class="postpay-kpi-val" id="postPayTotal">0,00 €</div>
+            <div class="postpay-kpi-lbl">Total</div>
+          </div>
+          <div class="postpay-kpi">
+            <div class="postpay-kpi-val" id="postPayChange">0,00 €</div>
+            <div class="postpay-kpi-lbl">Cambio</div>
+          </div>
+        </div>
+
+        <div class="postpay-actions">
+          <button
+            type="button"
+            id="postPayPrintBtn"
+            class="pay-btn pay-btn-blue"
+          >
+            🧾 Imprimir ticket
+          </button>
+
+          <button type="button" id="postPayOpenDrawerBtn" class="pay-btn">
+            🗄️ Abrir cajón
+          </button>
+        </div>
+
+        <div class="postpay-autoclose" id="postPayAutoCloseText"></div>
+      </div>
+    </div>
+
+    <!-- Overlay: Confirmar cierre de caja -->
+<div id="cashCloseConfirmOverlay" class="simple-overlay hidden">
+  <div class="simple-dialog" style="width: 520px; max-width: 94vw">
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+      <h2 style="margin:0">Confirmar cierre de caja</h2>
+      <button type="button" id="cashCloseConfirmCloseX" class="small-btn">✕</button>
+    </div>
+
+    <div id="cashCloseConfirmText" style="margin-top:10px; font-size:13px; opacity:0.9; white-space:pre-line;">
+      ¿Seguro que quieres cerrar la caja?
+    </div>
+
+    <div
+      class="dialog-actions"
+      style="margin-top: 16px; display:flex; gap:10px; justify-content:flex-end;"
+    >
+      <button type="button" id="cashCloseConfirmCancelBtn">Cancelar</button>
+      <button type="button" id="cashCloseConfirmOkBtn" class="pay-btn pay-btn-blue">
+        Sí, cerrar caja
+      </button>
+    </div>
+  </div>
+</div>
+
     <!-- Overlay: Opciones -->
     <div id="optionsOverlay" class="simple-overlay hidden">
       <div class="simple-dialog" style="width: 520px; max-width: 94vw">
@@ -978,6 +1046,39 @@
         >
           <h2 style="margin: 0">Opciones</h2>
           <button type="button" id="optionsCloseX" class="small-btn">✕</button>
+        </div>
+
+        <div
+          style="
+            margin-top: 16px;
+            border-top: 1px solid #eee;
+            padding-top: 12px;
+          "
+        >
+          <div style="font-weight: 700; margin-bottom: 6px">Caja</div>
+
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 10px;
+              flex-wrap: wrap;
+            "
+          >
+            <div style="font-size: 13px; opacity: 0.85">
+              Abrir cajón con todos los pagos
+            </div>
+
+            <label class="switch">
+              <input type="checkbox" id="openDrawerAlwaysToggle" />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div style="font-size: 12px; opacity: 0.7; margin-top: 6px">
+            Si lo desactivas, el cajón solo se abrirá con pagos en efectivo.
+          </div>
         </div>
 
         <div data-admin-only>
@@ -1119,7 +1220,9 @@
             padding-top: 12px;
           "
         >
-          <div style="font-weight: 700; margin-bottom: 6px">Caja</div>
+          <div style="font-weight: 700; margin-bottom: 6px">
+            Apertura de cajón
+          </div>
 
           <div
             style="
