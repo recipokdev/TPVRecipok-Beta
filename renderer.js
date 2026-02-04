@@ -3355,9 +3355,9 @@ function buildCashClosePrintData(remoteCaja) {
   const openingTotal = Number(
     cashSession.openingTotal || remoteCaja?.dineroini || 0,
   );
-  const cashIncome = Number(
-    cashSession.cashSalesTotal || remoteCaja?.ingresos || 0,
-  );
+  const pm = cashSession.paymentsByMethod || {};
+  const cont = pm["CONT"]; // o tu código efectivo real
+  const cashIncome = Number(cont?.total || 0);
   const movements = Number(
     cashSession.cashMovementsTotal || remoteCaja?.totalmovi || 0,
   );
@@ -8115,19 +8115,67 @@ async function openPayModal(total) {
 
   // eventos keypad
   const keypad = payOverlay.querySelector(".pay-keypad");
-  const onKeypadClick = (e) => {
+
+  const activePointers = new Map(); // pointerId -> { k, consumed }
+
+  const getKeyFromEvent = (e) => {
     const btn = e.target.closest("[data-k]");
-    if (!btn) return;
-    const k = btn.getAttribute("data-k");
+    if (!btn) return null;
+    return btn.getAttribute("data-k");
+  };
+
+  const onPointerDown = (e) => {
+    const k = getKeyFromEvent(e);
+    if (!k) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const pid = e.pointerId ?? "nopid";
+
+    activePointers.set(pid, { k, consumed: false });
+
+    try {
+      e.target.setPointerCapture?.(e.pointerId);
+    } catch {}
+  };
+
+  const onPointerUp = (e) => {
+    const k = getKeyFromEvent(e);
+    if (!k) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const pid = e.pointerId ?? "nopid";
+    const st = activePointers.get(pid);
+
+    if (!st) return; // sin down previo
+    if (st.consumed) return; // up duplicado
+    if (st.k !== k) return; // tecla distinta
+
+    st.consumed = true;
+    activePointers.set(pid, st);
+
     if (k === "back") payKeyBackspace();
     else if (k === "clear") payKeyClearAll();
     else payKeyAppend(k);
   };
-  keypad.addEventListener("click", onKeypadClick);
 
-  // cerrar por X / cancelar
+  const onPointerCancel = (e) => {
+    const pid = e.pointerId ?? "nopid";
+    activePointers.delete(pid);
+  };
+
+  keypad.addEventListener("pointerdown", onPointerDown, { passive: false });
+  keypad.addEventListener("pointerup", onPointerUp, { passive: false });
+  keypad.addEventListener("pointercancel", onPointerCancel, { passive: false });
+
   const closeModal = () => {
-    keypad.removeEventListener("click", onKeypadClick);
+    keypad.removeEventListener("pointerdown", onPointerDown);
+    keypad.removeEventListener("pointerup", onPointerUp);
+    keypad.removeEventListener("pointercancel", onPointerCancel);
+
     payOverlay.classList.add("hidden");
   };
 
